@@ -5,9 +5,6 @@ module.exports = {
   roots: ["<rootDir>/src"],
   testMatch: ["**/*.test.{ts,tsx}"],
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json"],
-  moduleNameMapper: {
-    "^react-native$": "react-native-web",
-  },
   transform: {
     "^.+\\.(ts|tsx)$": [
       "ts-jest",
@@ -16,8 +13,8 @@ module.exports = {
       },
     ],
   },
-  // Apollo Client v4 and react-native-web expose multiple export conditions;
-  // force the Node/require build so jsdom can `require` them.
+  // Apollo Client v4 exposes multiple export conditions; force the Node/require
+  // build so jsdom can `require` it.
   testEnvironmentOptions: {
     customExportConditions: ["node", "require", "default"],
   },

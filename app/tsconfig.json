@@ -12,7 +12,11 @@
     "sourceMap": false,
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
-    "types": ["node", "vite/client", "jest", "@testing-library/jest-dom"]
+    "types": ["node", "vite/client", "jest", "@testing-library/jest-dom"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": [
     "src",

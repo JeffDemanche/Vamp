@@ -1,11 +1,5 @@
 import { useQuery } from "@apollo/client/react";
-import {
-  ActivityIndicator,
-  FlatList,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Loader2 } from "lucide-react";
 import { graphql } from "../generated";
 
 export const UsersQuery = graphql(`
@@ -22,75 +16,46 @@ export function HomeScreen() {
   const { data, loading, error } = useQuery(UsersQuery);
 
   return (
-    <View style={styles.container} testID="home-screen">
-      <Text style={styles.title}>Vamp</Text>
-      <Text style={styles.subtitle}>Collaborative music-making</Text>
+    <div
+      data-testid="home-screen"
+      className="min-h-screen bg-background px-6 py-8 text-foreground"
+    >
+      <h1 className="text-3xl font-bold tracking-tight">Vamp</h1>
+      <p className="mt-1 mb-6 text-muted-foreground">
+        Collaborative music-making
+      </p>
 
-      {loading && <ActivityIndicator accessibilityLabel="Loading users" />}
+      {loading && (
+        <div
+          role="status"
+          aria-label="Loading users"
+          className="flex items-center gap-2 text-muted-foreground"
+        >
+          <Loader2 className="size-4 animate-spin" aria-hidden />
+          Loading users…
+        </div>
+      )}
 
       {error && (
-        <Text style={styles.error} testID="error">
+        <p data-testid="error" className="text-destructive">
           Could not load users: {error.message}
-        </Text>
+        </p>
       )}
 
       {data && (
-        <FlatList
-          testID="user-list"
-          style={styles.list}
-          data={data.users}
-          keyExtractor={(user) => user._id}
-          ListEmptyComponent={<Text style={styles.empty}>No users yet.</Text>}
-          renderItem={({ item }) => (
-            <View style={styles.row}>
-              <Text style={styles.name}>{item.name}</Text>
-              <Text style={styles.email}>{item.email}</Text>
-            </View>
+        <ul data-testid="user-list" className="divide-y divide-border">
+          {data.users.length === 0 ? (
+            <li className="py-3 text-muted-foreground">No users yet.</li>
+          ) : (
+            data.users.map((user) => (
+              <li key={user._id} className="py-3">
+                <p className="font-semibold">{user.name}</p>
+                <p className="text-sm text-muted-foreground">{user.email}</p>
+              </li>
+            ))
           )}
-        />
+        </ul>
       )}
-    </View>
+    </div>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 24,
-    gap: 8,
-    backgroundColor: "#0f1115",
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: "#ffffff",
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#9aa4b2",
-    marginBottom: 16,
-  },
-  list: {
-    flex: 1,
-  },
-  row: {
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#222831",
-  },
-  name: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#e7ecf3",
-  },
-  email: {
-    fontSize: 14,
-    color: "#9aa4b2",
-  },
-  empty: {
-    color: "#9aa4b2",
-  },
-  error: {
-    color: "#ff6b6b",
-  },
-});
