@@ -1,0 +1,33 @@
+---
+description: Maintain the product glossary of domain terms, data models, and user-facing concepts
+alwaysApply: true
+---
+
+# Maintain the Product Glossary
+
+`docs/GLOSSARY.md` is the canonical reference for Vamp's product-specific
+vocabulary — data models (e.g. `User`), domain concepts (e.g. "collaborative
+music-making"), GraphQL operations, and user-facing terms.
+
+## When to update it
+
+Update the glossary **in the same change** that touches a concept. Treat it as part
+of the definition of done, not a follow-up.
+
+- **New concept introduced** → add an entry to the matching section.
+- **Existing concept changes** (renamed, fields added/removed, meaning altered) →
+  update its entry so it matches the code.
+- **Concept removed** → delete the entry (or mark it deprecated if still referenced).
+
+Trigger examples: adding/editing a server entity (`server/src/entities/`), changing
+the GraphQL schema, adding a query/mutation, or introducing a new user-facing screen
+or term.
+
+## How to update it
+
+- Put each term in the correct section and keep sections alphabetized.
+- Use the exact casing from the product/code.
+- Link entries to the defining code (type name or file path) when one exists.
+- Keep definitions concise and accurate; do not let the glossary drift from reality.
+
+When in doubt about whether something is "product-specific," err toward adding it.
