@@ -1,11 +1,13 @@
 import { config } from "./config";
 import { ProjectDataRepository } from "./repositories/ProjectDataRepository";
 import { ProjectRepository } from "./repositories/ProjectRepository";
+import { ProjectUserRepository } from "./repositories/ProjectUserRepository";
 import { SessionRepository } from "./repositories/SessionRepository";
 import { UserRepository } from "./repositories/UserRepository";
 import { AuthService } from "./services/AuthService";
 import { ProjectDataService } from "./services/ProjectDataService";
 import { ProjectService } from "./services/ProjectService";
+import { ProjectUserService } from "./services/ProjectUserService";
 import { UserService } from "./services/UserService";
 
 /**
@@ -18,6 +20,7 @@ export interface Services {
   auth: AuthService;
   projects: ProjectService;
   projectData: ProjectDataService;
+  projectUsers: ProjectUserService;
 }
 
 /**
@@ -30,6 +33,7 @@ export function createServices(): Services {
   const sessionRepository = new SessionRepository();
   const projectRepository = new ProjectRepository();
   const projectDataRepository = new ProjectDataRepository();
+  const projectUserRepository = new ProjectUserRepository();
 
   const users = new UserService(userRepository);
   const auth = new AuthService(userRepository, sessionRepository, {
@@ -37,6 +41,7 @@ export function createServices(): Services {
   });
   const projectData = new ProjectDataService(projectDataRepository);
   const projects = new ProjectService(projectRepository, projectData);
+  const projectUsers = new ProjectUserService(projectUserRepository);
 
-  return { users, auth, projects, projectData };
+  return { users, auth, projects, projectData, projectUsers };
 }

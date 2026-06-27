@@ -20,7 +20,7 @@ at the bottom.
 | **Sample (timeline unit)** | The unit for project-timeline timestamps and durations. Unless explicitly stated otherwise, every timeline position/length (e.g. `ProjectClip.start`, `ProjectClip.duration`) is an integer count of audio samples, **not** seconds. See `AGENTS.md`. |
 | **Timeline viewport** | The slice of the project timeline currently visible in the editor, expressed in samples as `{ start, end }` — the sample coordinates at the timeline's left- and right-hand cutoffs (either may be negative). Client-only editor state held in jotai (`app/src/state/timeline.ts`) and modified by pan/zoom gestures. |
 | **Owner** | The user who owns a project (`Project.owner`); a project has exactly one owner. |
-| **Playback range** | The sample window playback uses in the editor: `playStart` (where playback begins) and `playEnd` (where it ends/loops). `playEnd` may be `null`, meaning playback runs indefinitely with no end boundary. Client-only editor state held in jotai (`app/src/state/timeline.ts`) and visualized by the `TimelinePlayhead` scrubbers. |
+| **Playback range** | The sample window playback uses in the editor: `playStart` (where playback begins) and `playEnd` (where it ends/loops). `playEnd` may be `null`, meaning playback runs indefinitely with no end boundary. Client-only editor state held in jotai (`app/src/state/timeline.ts`) and visualized by the `TimelinePlayhead` scrubbers. A per-user, per-project home for persisting it exists server-side on `ProjectUser` (with `projectUser`/`setProjectUserPlayback` operations), but the client is **not yet wired to it** — persistence will be hooked up once timeline edits fire real change events. |
 | **Project** | A unit of collaborative work: a titled container with an owner, contributors, and backing `ProjectData`. See the Data Models section. **"Project" is primarily a backend/code term** (entities, GraphQL operations, component names); in the app's user-facing copy a project is called a **Vamp** (plural **Vamps**). |
 | **Vamp (project)** | The user-facing name for a `Project`. Front-end copy refers to projects as "Vamps" (e.g. "Your Vamps", "New Vamp"); the backend, GraphQL schema, and code identifiers keep the `Project` name. Distinct from **Vamp** the product, though intentionally evocative of it. |
 
@@ -91,6 +91,27 @@ document's `_id`.
 | `creator` | `User` | The user who created the track. Stored as a ref; **not** exposed via `@Field` yet (will be hydrated by a field resolver). |
 | `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
 
+### ProjectUser
+`server/src/entities/ProjectUser.ts` · GraphQL type `ProjectUser`
+
+A single `User`'s per-project state for a `Project` — information that belongs to
+one user's view rather than the shared project content. Stored in its own
+collection keyed by a unique `(project, user)` pair; the `project`/`user`
+relations are persisted as refs with **no** `@Field` (they are lookup keys, not
+part of the API shape). For now it holds just the editor's **playback range**
+(`playStart`/`playEnd`, integers in **samples** — see `AGENTS.md`). The server
+exposes read/write operations for it, but the client timeline is not yet wired
+to persist through them.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `_id` | `ID` | Server-generated unique identifier. |
+| `project` | `Ref<Project>` | The project this state belongs to. Stored only; not exposed via GraphQL. |
+| `user` | `Ref<User>` | The user this state belongs to. Stored only; not exposed via GraphQL. |
+| `playStart` | `Int` | Saved playback start, in samples. Defaults to `0`. |
+| `playEnd` | `Int` | Saved playback end/loop, in samples, or `null` for no end boundary. Defaults to `null`. |
+| `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
+
 ### Session
 `server/src/entities/Session.ts` · no GraphQL type
 
@@ -132,9 +153,11 @@ hashes the password with scrypt (`server/src/lib/password.ts`).
 | `logout` | Mutation | Ends the current session (deletes it and clears the cookie). Returns `Boolean`. |
 | `me` | Query | Returns the currently authenticated `User`, or null if not signed in. |
 | `project(id: ID!)` | Query | Returns a single project by id, or null. |
+| `projectUser(projectId: ID!)` | Query | Returns the signed-in user's per-project state (`ProjectUser`) for a project, or null if none has been saved yet. Identity comes from the authenticated user, not an argument. |
 | `projectsByUser(userId: ID!, includeArchived: Boolean = false)` | Query | Returns projects the user owns or contributes to (`[Project!]!`), newest first. Archived projects are excluded unless `includeArchived` is `true`. |
 | `register(input: RegisterInput!)` | Mutation | Registers a new account from `{ username, email, password }` (password hashed with scrypt) and returns the `User`. |
 | `setProjectArchived(id: ID!, archived: Boolean!)` | Mutation | Archives or unarchives a project, returning the updated `Project`. |
+| `setProjectUserPlayback(input: SetProjectUserPlaybackInput!)` | Mutation | Persists the signed-in user's timeline playback range (`{ projectId, playStart, playEnd }`) for a project, upserting the `ProjectUser` and returning it. |
 | `updateProjectMetadata(input: UpdateProjectMetadataInput!)` | Mutation | Updates metadata stored directly on a `Project` (currently `title`); `ProjectData` content has separate flows. |
 | `user(id: ID!)` | Query | Returns a single user by id, or null. |
 | `userByEmail(email: String!)` | Query | Returns a single user by email, or null. |

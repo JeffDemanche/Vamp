@@ -26,6 +26,7 @@ type Mutation {
   logout: Boolean!
   register(input: RegisterInput!): User!
   setProjectArchived(archived: Boolean!, id: ID!): Project!
+  setProjectUserPlayback(input: SetProjectUserPlaybackInput!): ProjectUser!
   updateProjectMetadata(input: UpdateProjectMetadataInput!): Project!
 }
 
@@ -60,9 +61,17 @@ type ProjectTrack {
   name: String!
 }
 
+type ProjectUser {
+  _id: ID!
+  createdAt: DateTimeISO!
+  playEnd: Int
+  playStart: Int!
+}
+
 type Query {
   me: User
   project(id: ID!): Project
+  projectUser(projectId: ID!): ProjectUser
   projectsByUser(includeArchived: Boolean! = false, userId: ID!): [Project!]!
   user(id: ID!): User
   userByEmail(email: String!): User
@@ -73,6 +82,12 @@ input RegisterInput {
   email: String!
   password: String!
   username: String!
+}
+
+input SetProjectUserPlaybackInput {
+  playEnd: Int
+  playStart: Int!
+  projectId: ID!
 }
 
 input UpdateProjectMetadataInput {
