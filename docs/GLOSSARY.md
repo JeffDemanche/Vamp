@@ -102,10 +102,13 @@ hashes the password with scrypt (`server/src/lib/password.ts`).
 
 | Term | Definition |
 | --- | --- |
-| **LandingView** | The landing view at `/`, showing the Vamp title, tagline, and the list of users (`app/src/components/LandingView.tsx`). |
-| **ProjectView** | The view for a single project at `/projects/:projectId`, where the project editor will live (`app/src/components/ProjectView.tsx`). |
-| **UserHomeView** | The signed-in user's home view at `/home`, listing the projects they own and collaborate on (`app/src/components/UserHomeView.tsx`). |
-| **View** | A top-level, route-level screen component on the client. Views live in `app/src/components/` and are suffixed `View`. |
+| **LandingView** | The landing view at `/`, showing the Vamp title, tagline, login/sign-up links, and the list of users (`app/src/components/views/LandingView.tsx`). |
+| **LoginView** | The login view at `/login`; an email + password form that begins a session and redirects to `/home` on success (`app/src/components/views/LoginView.tsx`). |
+| **ProjectView** | The view for a single project at `/projects/:projectId`, where the project editor will live (`app/src/components/views/ProjectView.tsx`). Guarded by `RequireAuth`. |
+| **RegisterView** | The registration view at `/register`; a username/email/password form that creates an account, then sends the user to `LoginView` (`app/src/components/views/RegisterView.tsx`). |
+| **RequireAuth** | Client route guard that renders its children only for a signed-in user (via the `me` query) and otherwise redirects to `LoginView` (`app/src/auth/RequireAuth.tsx`). Wraps `UserHomeView` and `ProjectView`. |
+| **UserHomeView** | The signed-in user's home view at `/home`, listing the projects they own and collaborate on, with a log-out action (`app/src/components/views/UserHomeView.tsx`). Guarded by `RequireAuth`. |
+| **View** | A top-level, route-level screen component on the client. The top tier of the [UI component architecture](../.cursor/rules/ui-architecture.mdc); views live in `app/src/components/views/` and are suffixed `View`. |
 
 ## Infrastructure & Local Development
 

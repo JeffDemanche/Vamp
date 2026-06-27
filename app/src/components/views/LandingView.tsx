@@ -1,6 +1,8 @@
 import { useQuery } from "@apollo/client/react";
-import { Loader2 } from "lucide-react";
-import { graphql } from "../generated";
+import { Loader2, LogIn, UserPlus } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/primitives/button";
+import { graphql } from "@/generated";
 
 export const UsersQuery = graphql(`
   query Users {
@@ -20,10 +22,26 @@ export function LandingView() {
       data-testid="landing-view"
       className="min-h-screen bg-background px-6 py-8 text-foreground"
     >
-      <h1 className="text-3xl font-bold tracking-tight">Vamp</h1>
-      <p className="mt-1 mb-6 text-muted-foreground">
-        Collaborative music-making
-      </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Vamp</h1>
+          <p className="mt-1 text-muted-foreground">Collaborative music-making</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="ghost">
+            <Link to="/login">
+              <LogIn aria-hidden />
+              Log in
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link to="/register">
+              <UserPlus aria-hidden />
+              Sign up
+            </Link>
+          </Button>
+        </div>
+      </div>
 
       {loading && (
         <div

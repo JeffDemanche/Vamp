@@ -24,3 +24,6 @@ cookie. Remaining work:
       origin to support local dev).
 - [ ] Session hardening: rotate tokens on privilege change and add a
       "log out everywhere" action (`SessionRepository.deleteByUser` already exists).
+- [ ] **Full-stack Playwright tests.** Add end-to-end tests covering the auth flows
+      (register → login → access guarded views → logout, plus invalid-credential and
+      redirect-when-signed-out cases) driving the real client against a running server.

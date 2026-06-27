@@ -20,8 +20,13 @@ Vamp is a collaborative music-making app. This is an npm-workspaces monorepo:
    GraphQL `ObjectType`s (`server/src/entities/`). The GraphQL SDL
    (`server/schema.graphql`) and the client's generated types (`app/src/generated/`)
    are derived artifacts — regenerate them rather than editing by hand.
-3. **One styling system on the client.** Use Tailwind/shadcn for UI. Reuse and extend
-   components in `app/src/components/ui` instead of introducing parallel approaches.
+3. **Layered UI components on the client.** Organize client components under
+   `app/src/components/` into four tiers — `primitives/`, `composites/`, `features/`,
+   and `views/` (see `.cursor/rules/ui-architecture.mdc`). Build on Tailwind/shadcn
+   primitives rather than introducing parallel styling systems. **Primitives and
+   composites must be pure**: they receive 100% of their state through React props (no
+   data fetching, mutations, routing, or business state) — that logic lives in features
+   and views, which pass data and handlers down.
 4. **Verify your work.** Run typecheck/build/tests for the workspace you changed
    before considering a task done (e.g. `npm run typecheck -w @vamp/app`,
    `npm test -w @vamp/app`).

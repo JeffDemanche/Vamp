@@ -1,0 +1,48 @@
+---
+description: Client UI component architecture (primitives, composites, features, views) and the purity rule for primitives/composites
+globs: app/src/components/**/*.tsx
+alwaysApply: false
+---
+
+# UI Component Architecture
+
+Client components live under `app/src/components/` in four tiers, each its own
+directory. A component may only depend on components in the tiers above it in
+this list (views can use everything; primitives use nothing but each other).
+
+- **primitives/** — smallest building blocks (e.g. `Button`, `Input`). Tailwind /
+  shadcn styling, no app or domain knowledge.
+- **composites/** — reusable combinations of primitives (labeled fields, cards,
+  dialogs). Still domain-agnostic.
+- **features/** — domain-aware pieces wired to data/state (Apollo hooks, mutations,
+  router). Compose composites and primitives.
+- **views/** — top-level, route-level screens, suffixed `View`, mounted by the
+  router. Compose features, composites, and primitives.
+
+Put a new component in the lowest tier that fits.
+
+## Purity: primitives & composites get 100% of their state via props
+
+Primitives and composites MUST be pure presentational components — all state and
+behavior arrives through React props. They must NOT:
+
+- call app/state hooks (`useQuery`, `useMutation`, `useContext`, router hooks, …);
+- hold business state (`useState`/`useReducer`); purely-internal UI helpers like
+  `useId` are fine;
+- import from `@/auth`, `@/generated`, or `@/apollo`.
+
+Data fetching, mutations, and routing belong in **features** and **views**, which
+pass data and callbacks down as props.
+
+```tsx
+// ❌ BAD — a composite fetching its own data
+function UserBadge() {
+  const { data } = useQuery(MeQuery); // hooks/data not allowed here
+  return <span>{data?.me?.username}</span>;
+}
+
+// ✅ GOOD — state comes in through props
+function UserBadge({ username }: { username: string }) {
+  return <span>{username}</span>;
+}
+```
