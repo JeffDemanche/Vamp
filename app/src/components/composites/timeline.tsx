@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import { TimelinePlayhead } from "@/components/primitives/timeline-playhead"
 import { TimelineRuler } from "@/components/primitives/timeline-ruler"
 import { cn } from "@/lib/utils"
 
@@ -10,6 +11,10 @@ type TimelineProps = {
   viewportEnd: number
   /** Samples per second, used to render the ruler. */
   sampleRate: number
+  /** Sample where playback begins; drawn as a forward-facing scrubber. */
+  playStart: number
+  /** Sample where playback ends/loops; drawn as a backward-facing scrubber. Null hides it. */
+  playEnd: number | null
   /** Pan the viewport by a sample delta (positive = move the view later/right). */
   onPan?: (deltaSamples: number) => void
   /** Zoom around a focus sample; `factor` < 1 zooms in, > 1 zooms out. */
@@ -45,6 +50,8 @@ function Timeline({
   viewportStart,
   viewportEnd,
   sampleRate,
+  playStart,
+  playEnd,
   onPan,
   onZoom,
   children,
@@ -138,6 +145,15 @@ function Timeline({
           viewportStart={viewportStart}
           viewportEnd={viewportEnd}
           sampleRate={sampleRate}
+        />
+      </div>
+      <div className="pointer-events-none absolute inset-0">
+        <TimelinePlayhead
+          viewportStart={viewportStart}
+          viewportEnd={viewportEnd}
+          headerHeight={TIMELINE_HEADER_HEIGHT}
+          playStart={playStart}
+          playEnd={playEnd}
         />
       </div>
       <div

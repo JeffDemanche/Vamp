@@ -46,6 +46,11 @@ const DEFAULT_VIEWPORT: TimelineViewport = {
   end: DEFAULT_SAMPLE_RATE * 10,
 };
 
+/** Playback starts at the origin (sample 0) by default. */
+const DEFAULT_PLAY_START = 0;
+/** No end boundary by default — playback runs indefinitely. */
+const DEFAULT_PLAY_END: number | null = null;
+
 // --- Base atoms -----------------------------------------------------------
 
 /** The visible viewport, in samples. The single source of truth for panning/zoom. */
@@ -53,6 +58,18 @@ export const viewportAtom = atom<TimelineViewport>(DEFAULT_VIEWPORT);
 
 /** The sample rate used to interpret the timeline. */
 export const sampleRateAtom = atom<number>(DEFAULT_SAMPLE_RATE);
+
+/**
+ * Sample at which playback begins. Always a concrete sample position (it may be
+ * negative, mirroring the viewport, but is never null).
+ */
+export const playStartAtom = atom<number>(DEFAULT_PLAY_START);
+
+/**
+ * Sample at which playback ends (or loops). `null` means there is no end
+ * boundary and playback continues indefinitely.
+ */
+export const playEndAtom = atom<number | null>(DEFAULT_PLAY_END);
 
 // --- Derived atoms --------------------------------------------------------
 
@@ -102,6 +119,29 @@ export const zoomViewportAtom = atom(
   },
 );
 
+/**
+ * Move the playback start to a sample position. If an end boundary exists and
+ * would end up before the new start, the end is pushed along to keep
+ * `playEnd >= playStart`.
+ */
+export const setPlayStartAtom = atom(null, (get, set, sample: number) => {
+  set(playStartAtom, sample);
+  const end = get(playEndAtom);
+  if (end !== null && end < sample) set(playEndAtom, sample);
+});
+
+/**
+ * Set (or clear, with `null`) the playback end boundary. A non-null value is
+ * clamped so it never falls before the playback start.
+ */
+export const setPlayEndAtom = atom(null, (get, set, sample: number | null) => {
+  if (sample === null) {
+    set(playEndAtom, null);
+    return;
+  }
+  set(playEndAtom, Math.max(sample, get(playStartAtom)));
+});
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -139,4 +179,28 @@ export function useTimelineViewport(): UseTimelineViewport {
     pan: panViewport,
     zoom: (factor, focusSample) => zoomViewport({ factor, focusSample }),
   };
+}
+
+export type UseTimelinePlayback = {
+  /** Sample where playback begins. */
+  playStart: number;
+  /** Sample where playback ends/loops, or null to play indefinitely. */
+  playEnd: number | null;
+  /** Move the playback start to a sample position. */
+  setPlayStart: (sample: number) => void;
+  /** Set (or clear, with `null`) the playback end boundary. */
+  setPlayEnd: (sample: number | null) => void;
+};
+
+/**
+ * Typed access to the timeline's playback range (`playStart`/`playEnd`) for
+ * feature/view components, returning stable setters that keep the two ordered.
+ */
+export function useTimelinePlayback(): UseTimelinePlayback {
+  const playStart = useAtomValue(playStartAtom);
+  const playEnd = useAtomValue(playEndAtom);
+  const setPlayStart = useSetAtom(setPlayStartAtom);
+  const setPlayEnd = useSetAtom(setPlayEndAtom);
+
+  return { playStart, playEnd, setPlayStart, setPlayEnd };
 }
