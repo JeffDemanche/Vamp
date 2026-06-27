@@ -8,6 +8,7 @@ import { createServices } from "./container";
 import type { ServerContext } from "./context";
 import { mountAudioRoutes } from "./routes/audioRoutes";
 import { createSchema } from "./schema";
+import { mountClient } from "./lib/staticClient";
 
 export type { ServerContext } from "./context";
 
@@ -54,6 +55,10 @@ export async function createApp(
       },
     }),
   );
+
+  // Serve the built SPA (production / single-deployment mode). Mounted last so
+  // it never shadows the API routes above.
+  mountClient(app);
 
   return app;
 }

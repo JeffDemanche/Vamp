@@ -44,3 +44,5 @@ coverage/
 
 # Local audio uploads (local AudioStorage driver)
 .audio-uploads/
+.vercel
+.env*

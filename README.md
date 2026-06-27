@@ -126,6 +126,48 @@ npx playwright install chromium   # one-time browser download
 npm run test:e2e                  # boots the Vite dev server automatically
 ```
 
+## Deploy to Vercel
+
+The whole app ships as a **single Vercel deployment**: one Express server (a
+serverless function) serves the GraphQL API, the audio transfer routes, and the
+production Vite build of the React client.
+
+How it fits together:
+
+- `npm run vercel-build` (the configured build command) regenerates the schema,
+  runs codegen, then builds both workspaces — producing `app/dist` (the SPA) and
+  `server/dist` (the compiled API).
+- `api/index.ts` is the serverless entrypoint. It boots the Express app once
+  (Apollo + MongoDB connection are cached across warm invocations) and forwards
+  every request to it.
+- `vercel.json` wires this together: it runs the build, bundles `app/dist` into
+  the function (`includeFiles`), and rewrites **all** routes to the function so
+  the Express server serves both the API and the SPA (with an `index.html`
+  fallback for client-side routes).
+- In production the client talks to a **same-origin** `/graphql` automatically
+  (see `app/src/apollo/client.ts`), so no `VITE_GRAPHQL_URI` is needed.
+
+Required environment variables in the Vercel project:
+
+| Variable                | Purpose                                                        |
+| ----------------------- | ------------------------------------------------------------- |
+| `MONGO_URI`             | Connection string for your MongoDB (e.g. Atlas) cluster       |
+| `AUDIO_STORAGE_DRIVER`  | Set to `vercel` to store audio bytes in Vercel Blob           |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob read-write token (required when driver = `vercel`) |
+
+`NODE_ENV=production` and `VERCEL_URL` are provided by Vercel automatically;
+`PUBLIC_BASE_URL` defaults to `https://$VERCEL_URL` when unset.
+
+You can produce the same build locally with `npm run vercel-build`, then run the
+combined server (it serves `app/dist` because `NODE_ENV=production` enables
+`SERVE_CLIENT`):
+
+```bash
+npm run vercel-build
+NODE_ENV=production MONGO_URI=mongodb://127.0.0.1:27017/vamp npm start
+# → http://localhost:4000 serves the SPA, /graphql, and /audio
+```
+
 ## Project layout
 
 ```

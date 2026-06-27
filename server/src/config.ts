@@ -31,16 +31,43 @@ export interface AudioStorageConfig {
   blobToken?: string;
 }
 
+export interface ClientConfig {
+  /**
+   * Whether this server also serves the built React SPA (`app/dist`). Enabled
+   * by default in production (e.g. the single Vercel deployment) and disabled
+   * in development where the Vite dev server owns the client.
+   */
+  serve: boolean;
+  /**
+   * Explicit path to the client build output. When unset the server
+   * auto-detects `app/dist` relative to the working directory / bundle.
+   */
+  distDir?: string;
+}
+
 export interface AppConfig {
   port: number;
   mongoUri: string;
   nodeEnv: string;
   auth: AuthConfig;
   audio: AudioStorageConfig;
+  client: ClientConfig;
 }
 
 const nodeEnv = process.env.NODE_ENV ?? "development";
 const port = Number(process.env.PORT ?? 4000);
+
+/**
+ * Best-effort public origin of this server. Prefers an explicit
+ * `PUBLIC_BASE_URL`, then Vercel's injected `VERCEL_URL` (host only, so we add
+ * the scheme), and finally localhost for development.
+ */
+const publicBaseUrl = (
+  process.env.PUBLIC_BASE_URL ??
+  (process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : `http://localhost:${port}`)
+).replace(/\/$/, "");
 
 export const config: AppConfig = {
   port,
@@ -54,9 +81,14 @@ export const config: AppConfig = {
   },
   audio: {
     driver: process.env.AUDIO_STORAGE_DRIVER === "vercel" ? "vercel" : "local",
-    publicBaseUrl:
-      process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") ?? `http://localhost:${port}`,
+    publicBaseUrl,
     localDir: process.env.AUDIO_LOCAL_DIR ?? ".audio-uploads",
     blobToken: process.env.BLOB_READ_WRITE_TOKEN,
+  },
+  client: {
+    serve: process.env.SERVE_CLIENT
+      ? process.env.SERVE_CLIENT !== "false"
+      : nodeEnv === "production",
+    distDir: process.env.CLIENT_DIST_DIR,
   },
 };

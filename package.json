@@ -9,6 +9,8 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "vercel-build": "npm run schema && npm run codegen && npm run build",
+    "start": "npm run start --workspace server",
     "test": "npm run test --workspaces --if-present",
     "dev:server": "npm run dev --workspace server",
     "dev:app": "npm run dev --workspace app",
@@ -17,6 +19,12 @@
     "stack:up": "docker compose up -d",
     "stack:down": "docker compose down",
     "stack:watch": "docker compose watch"
+  },
+  "dependencies": {
+    "@vamp/server": "*"
+  },
+  "devDependencies": {
+    "@vercel/node": "^5.8.22"
   },
   "engines": {
     "node": ">=20"
