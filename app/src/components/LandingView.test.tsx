@@ -1,6 +1,6 @@
 import { MockedProvider } from "@apollo/client/testing/react";
 import { render, screen } from "@testing-library/react";
-import { HomeScreen, UsersQuery } from "./HomeScreen";
+import { LandingView, UsersQuery } from "./LandingView";
 
 const mocks = [
   {
@@ -26,11 +26,11 @@ const mocks = [
   },
 ];
 
-describe("HomeScreen", () => {
+describe("LandingView", () => {
   it("renders the app shell and a loading state initially", () => {
     render(
       <MockedProvider mocks={mocks}>
-        <HomeScreen />
+        <LandingView />
       </MockedProvider>,
     );
 
@@ -41,7 +41,7 @@ describe("HomeScreen", () => {
   it("renders users returned by the GraphQL query", async () => {
     render(
       <MockedProvider mocks={mocks}>
-        <HomeScreen />
+        <LandingView />
       </MockedProvider>,
     );
 

@@ -143,7 +143,7 @@ npm run test:e2e                  # boots the Vite dev server automatically
 └── app/
     ├── src/
     │   ├── apollo/client.ts
-    │   ├── screens/HomeScreen.tsx  # the single route, queries `users`
+    │   ├── components/             # route-level Views (LandingView, etc.)
     │   ├── App.tsx                 # ApolloProvider + Router
     │   ├── main.tsx                # web entry
     │   └── generated/              # GraphQL codegen output (git-ignored)

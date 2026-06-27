@@ -79,7 +79,10 @@ A registered person who can use Vamp.
 
 | Term | Definition |
 | --- | --- |
-| **Home screen** | The landing view at `/`, showing the Vamp title, tagline, and the list of users (`app/src/screens/HomeScreen.tsx`). |
+| **LandingView** | The landing view at `/`, showing the Vamp title, tagline, and the list of users (`app/src/components/LandingView.tsx`). |
+| **ProjectView** | The view for a single project at `/projects/:projectId`, where the project editor will live (`app/src/components/ProjectView.tsx`). |
+| **UserHomeView** | The signed-in user's home view at `/home`, listing the projects they own and collaborate on (`app/src/components/UserHomeView.tsx`). |
+| **View** | A top-level, route-level screen component on the client. Views live in `app/src/components/` and are suffixed `View`. |
 
 ## Infrastructure & Local Development
 
