@@ -135,17 +135,20 @@ production Vite build of the React client.
 How it fits together:
 
 - `npm run vercel-build` (the configured build command) regenerates the schema,
-  runs codegen, then builds both workspaces — producing `app/dist` (the SPA) and
-  `server/dist` (the compiled API).
-- `api/index.ts` is the serverless entrypoint. It boots the Express app once
-  (Apollo + MongoDB connection are cached across warm invocations) and forwards
-  every request to it.
-- `vercel.json` wires this together: it runs the build, bundles `app/dist` into
-  the function (`includeFiles`), and rewrites **all** routes to the function so
-  the Express server serves both the API and the SPA (with an `index.html`
-  fallback for client-side routes).
+  runs codegen, builds both workspaces, then copies `app/dist` → `public/`.
+- `server.ts` at the **repo root** is Vercel's zero-config Express entrypoint.
+  It default-exports the Express app (GraphQL API, audio routes, SPA fallback).
+  Vercel looks for `server.ts` / `index.ts` / `app.ts` here — not in `api/`.
+- Hashed client assets in `public/` are served from Vercel's CDN. Deep client
+  routes fall through to Express, which returns `index.html` for SPA routing.
+- `vercel.json` sets `"framework": null` so Vercel does not mis-detect the
+  project as a static Vite site (which would make it search for an entrypoint
+  inside `app/dist` and fail).
 - In production the client talks to a **same-origin** `/graphql` automatically
   (see `app/src/apollo/client.ts`), so no `VITE_GRAPHQL_URI` is needed.
+
+In the Vercel project settings, leave **Output Directory** blank (do not set it
+to `app/dist`).
 
 Required environment variables in the Vercel project:
 

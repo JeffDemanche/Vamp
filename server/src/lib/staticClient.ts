@@ -17,6 +17,7 @@ const API_PREFIXES = ["/graphql", "/audio", "/health"];
 function resolveClientDir(): string | null {
   const candidates = [
     config.client.distDir,
+    path.resolve(process.cwd(), "public"),
     path.resolve(process.cwd(), "app/dist"),
     path.resolve(process.cwd(), "../app/dist"),
     path.resolve(__dirname, "../../../app/dist"),
@@ -48,9 +49,11 @@ export function mountClient(app: Express): void {
 
   const indexHtml = path.join(dir, "index.html");
 
-  // Hashed assets, fonts, etc. Let unmatched requests fall through to the SPA
-  // fallback rather than 404ing on deep links.
-  app.use(express.static(dir, { index: false }));
+  // On Vercel, hashed assets are served from `public/` by the CDN; only mount
+  // express.static when running a self-hosted Node server.
+  if (!process.env.VERCEL) {
+    app.use(express.static(dir, { index: false }));
+  }
 
   app.use((req, res, next) => {
     if (req.method !== "GET" && req.method !== "HEAD") return next();
