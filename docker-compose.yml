@@ -1,0 +1,116 @@
+name: vamp
+
+services:
+  # MongoDB — backing store for the GraphQL API.
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # LocalStack — local AWS emulator. We use its S3 service to handle uploads in
+  # local development without touching real AWS.
+  localstack:
+    image: localstack/localstack:3
+    restart: unless-stopped
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3
+      DEBUG: "0"
+      PERSISTENCE: "1"
+    volumes:
+      - localstack-data:/var/lib/localstack
+      # Bucket bootstrap — runs once LocalStack reports ready.
+      - ./docker/localstack/init-s3.sh:/etc/localstack/init/ready.d/init-s3.sh:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # GraphQL API (Express + Apollo + type-graphql), run with ts-node-dev so it
+  # restarts on source changes.
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: npm run dev:server
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: "4000"
+      MONGO_URI: mongodb://mongo:27017/vamp
+      # AWS / S3 via LocalStack. Credentials are dummy values LocalStack accepts.
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_ENDPOINT_URL: http://localstack:4566
+      S3_BUCKET: vamp-uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    develop:
+      watch:
+        # Sync source into the container; ts-node-dev handles the restart.
+        - action: sync
+          path: ./server
+          target: /app/server
+          ignore:
+            - node_modules/
+            - dist/
+        # Dependency changes require a fresh `npm ci` -> rebuild the image.
+        - action: rebuild
+          path: ./server/package.json
+        - action: rebuild
+          path: ./package-lock.json
+
+  # Vite dev server with HMR. Runs codegen once on boot so the generated GraphQL
+  # documents exist before Vite resolves imports.
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: sh -c "npm run codegen && npm run dev:app"
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      # The browser (on the host) talks to the API on the published host port.
+      VITE_GRAPHQL_URI: http://localhost:4000/graphql
+    depends_on:
+      - server
+    develop:
+      watch:
+        # Sync source so Vite's own HMR/watcher picks up changes.
+        - action: sync
+          path: ./app
+          target: /app/app
+          ignore:
+            - node_modules/
+            - dist/
+            - src/generated/
+        # The committed schema drives codegen; pull it in on change.
+        - action: sync
+          path: ./server/schema.graphql
+          target: /app/server/schema.graphql
+        - action: rebuild
+          path: ./app/package.json
+        - action: rebuild
+          path: ./package-lock.json
+
+volumes:
+  mongo-data:
+  localstack-data:

@@ -12,5 +12,12 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Listen on all interfaces so the dev server is reachable when running in
+    // a container (e.g. `docker compose watch`).
+    host: true,
+    // Polling makes file-change detection reliable inside Docker on macOS.
+    watch: {
+      usePolling: true,
+    },
   },
 });

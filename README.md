@@ -40,6 +40,41 @@ The server is the source of truth for the GraphQL schema:
 - Node.js >= 20
 - A MongoDB instance for running the server locally (tests use an in-memory one automatically)
 
+The quickest way to get a full local stack (MongoDB + S3 + both dev servers) is
+Docker — see ["Run everything with Docker"](#run-everything-with-docker) below.
+
+## Run everything with Docker
+
+A single command brings up MongoDB, a [LocalStack](https://www.localstack.cloud/)
+S3 emulator, the GraphQL API, and the Vite dev server — all with live reload:
+
+```bash
+docker compose watch
+```
+
+`docker compose watch` builds the image, starts the stack, and then keeps the
+running containers in sync with your working tree:
+
+- editing files under `server/` restarts the API (ts-node-dev);
+- editing files under `app/` triggers Vite HMR in the browser;
+- changing a `package.json` or `package-lock.json` rebuilds the image.
+
+| Service      | URL / Port                          | Notes                                            |
+| ------------ | ----------------------------------- | ------------------------------------------------ |
+| `app`        | http://localhost:5173               | Vite dev server with HMR                         |
+| `server`     | http://localhost:4000/graphql       | GraphQL API (health check at `/health`)          |
+| `mongo`      | `mongodb://localhost:27017/vamp`    | Persisted in the `mongo-data` volume             |
+| `localstack` | http://localhost:4566               | S3 emulator; bucket `vamp-uploads` auto-created  |
+
+No `.env` files are needed for Docker — values are supplied in
+`docker-compose.yml`. Inside the network the API reaches MongoDB at
+`mongodb://mongo:27017/vamp` and S3 at `http://localstack:4566`.
+
+```bash
+docker compose down       # stop the stack (keeps volumes/data)
+docker compose down -v     # stop and wipe MongoDB + LocalStack data
+```
+
 ## Getting started
 
 ```bash

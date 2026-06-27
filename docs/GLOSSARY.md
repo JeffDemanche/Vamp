@@ -81,6 +81,14 @@ A registered person who can use Vamp.
 | --- | --- |
 | **Home screen** | The landing view at `/`, showing the Vamp title, tagline, and the list of users (`app/src/screens/HomeScreen.tsx`). |
 
+## Infrastructure & Local Development
+
+| Term | Definition |
+| --- | --- |
+| **Docker dev environment** | The full local stack (MongoDB, LocalStack, API, Vite) started with `docker compose watch`. Defined in `docker-compose.yml` + `Dockerfile`; keeps containers in sync with the working tree for live reload. |
+| **LocalStack** | A local AWS emulator run as a container in development. Vamp uses its S3 service so uploads can be exercised without real AWS. Reachable at `http://localstack:4566` inside the network (`http://localhost:4566` from the host). |
+| **S3 uploads** | File uploads stored in an S3 bucket (`vamp-uploads`). In local dev the bucket lives in LocalStack; the server reads its S3 settings from `AWS_*` / `S3_BUCKET` env vars (`server/src/config.ts`, `S3Config`). |
+
 ---
 
 ## Maintaining this glossary
