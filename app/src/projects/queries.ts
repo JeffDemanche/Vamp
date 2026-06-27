@@ -29,7 +29,8 @@ export const CreateEmptyProjectMutation = graphql(`
 
 /**
  * A single project with the metadata the `ProjectView` header needs (title and
- * owner). Used to populate the project editor screen.
+ * owner) plus the project's tracks for the editor's track pane. Used to populate
+ * the project editor screen.
  */
 export const ProjectQuery = graphql(`
   query Project($id: ID!) {
@@ -39,6 +40,13 @@ export const ProjectQuery = graphql(`
       owner {
         _id
         username
+      }
+      projectData {
+        _id
+        tracks {
+          _id
+          name
+        }
       }
     }
   }

@@ -23,6 +23,14 @@ type TimelineProps = {
 const ZOOM_SENSITIVITY = 0.0015
 
 /**
+ * Fixed height, in pixels, reserved along the top of the timeline for the
+ * ruler's timecode labels (and future scrubbing controls). Track lanes are laid
+ * out below this band; consumers that align UI with the lanes (e.g. the track
+ * pane) should offset by the same amount.
+ */
+export const TIMELINE_HEADER_HEIGHT = 32
+
+/**
  * The horizontal editing timeline surface. Renders a `TimelineRuler` underneath
  * everything as a background grid and lays its `children` (tracks/regions) on
  * top. Pointer drags pan the view and ctrl/⌘ + wheel (or pinch) zooms; raw
@@ -132,7 +140,12 @@ function Timeline({
           sampleRate={sampleRate}
         />
       </div>
-      <div className="relative h-full w-full">{children}</div>
+      <div
+        className="absolute inset-x-0 bottom-0"
+        style={{ top: TIMELINE_HEADER_HEIGHT }}
+      >
+        {children}
+      </div>
     </div>
   )
 }

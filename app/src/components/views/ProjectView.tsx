@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { ProjectTitleField } from "@/components/features/ProjectTitleField";
 import { TimelineEditor } from "@/components/features/TimelineEditor";
+import { TrackPane } from "@/components/features/TrackPane";
 import { ProjectQuery } from "@/projects/queries";
 
 export function ProjectView() {
@@ -59,8 +60,11 @@ export function ProjectView() {
         </p>
       </header>
 
-      <div className="mt-6 min-h-0 flex-1">
-        <TimelineEditor />
+      <div className="mt-6 flex min-h-0 flex-1 gap-3">
+        <TrackPane projectId={project._id} />
+        <div className="min-w-0 flex-1">
+          <TimelineEditor />
+        </div>
       </div>
     </div>
   );
