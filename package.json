@@ -23,8 +23,10 @@
   },
   "dependencies": {
     "@vamp/server": "*",
-    "express": "^5.2.1",
     "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
+    "@vercel/node": "^5.8.22"
   },
   "engines": {
     "node": ">=20"

@@ -136,19 +136,23 @@ How it fits together:
 
 - `npm run vercel-build` (the configured build command) regenerates the schema,
   runs codegen, builds both workspaces, then copies `app/dist` → `public/`.
-- `server.ts` at the **repo root** is Vercel's zero-config Express entrypoint.
-  It default-exports the Express app (GraphQL API, audio routes, SPA fallback).
-  Vercel looks for `server.ts` / `index.ts` / `app.ts` here — not in `api/`.
-- Hashed client assets in `public/` are served from Vercel's CDN. Deep client
-  routes fall through to Express, which returns `index.html` for SPA routing.
-- `vercel.json` sets `"framework": null` so Vercel does not mis-detect the
-  project as a static Vite site (which would make it search for an entrypoint
-  inside `app/dist` and fail).
+- `api/index.ts` is the serverless function. Files under `api/` are built by
+  `@vercel/node` regardless of framework, so this is reliable in a monorepo. It
+  boots the Express app once (Apollo + MongoDB are cached across warm
+  invocations) and forwards each request to it.
+- `vercel.json` sets `"framework": null` so Vercel does **not** auto-detect this
+  as an Express/Vite project (which previously caused either a `No entrypoint
+  found` build error, or a static-only deploy where every `POST /graphql`
+  returned `405`). It also maps **all** routes to the function via `rewrites`.
+- Hashed client assets and `index.html` live in `public/`, so Vercel's CDN
+  serves them directly (filesystem matches win over rewrites). Everything else —
+  `/graphql`, `/audio/*`, and deep client routes — falls through to the function,
+  which serves the API and the SPA `index.html` fallback.
 - In production the client talks to a **same-origin** `/graphql` automatically
   (see `app/src/apollo/client.ts`), so no `VITE_GRAPHQL_URI` is needed.
 
 In the Vercel project settings, leave **Output Directory** blank (do not set it
-to `app/dist`).
+to `app/dist`); `vercel.json` already handles output and routing.
 
 Required environment variables in the Vercel project:
 
