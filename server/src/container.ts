@@ -40,8 +40,8 @@ export function createServices(): Services {
     sessionTtlMs: config.auth.sessionTtlMs,
   });
   const projectData = new ProjectDataService(projectDataRepository);
-  const projects = new ProjectService(projectRepository, projectData);
   const projectUsers = new ProjectUserService(projectUserRepository);
+  const projects = new ProjectService(projectRepository, projectData, projectUsers);
 
   return { users, auth, projects, projectData, projectUsers };
 }

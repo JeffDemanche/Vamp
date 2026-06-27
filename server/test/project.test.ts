@@ -1,5 +1,6 @@
 import { ProjectModel } from "../src/entities/Project";
 import { ProjectDataModel } from "../src/entities/ProjectData";
+import { ProjectUserModel } from "../src/entities/ProjectUser";
 import { UserModel } from "../src/entities/User";
 import { execute, startTestStack, stopTestStack, type TestStack } from "./testServer";
 
@@ -18,11 +19,17 @@ const CREATE_PROJECT = /* GraphQL */ `
       title
       owner {
         _id
-        username
+        user {
+          _id
+          username
+        }
       }
       contributors {
         _id
-        username
+        user {
+          _id
+          username
+        }
       }
       projectData {
         _id
@@ -41,10 +48,14 @@ const GET_PROJECT = /* GraphQL */ `
       _id
       title
       owner {
-        username
+        user {
+          username
+        }
       }
       contributors {
-        username
+        user {
+          username
+        }
       }
       projectData {
         _id
@@ -70,6 +81,9 @@ const CREATE_EMPTY_PROJECT = /* GraphQL */ `
       archived
       owner {
         _id
+        user {
+          _id
+        }
       }
       contributors {
         _id
@@ -113,6 +127,7 @@ afterEach(async () => {
   await Promise.all([
     ProjectModel.deleteMany({}),
     ProjectDataModel.deleteMany({}),
+    ProjectUserModel.deleteMany({}),
     UserModel.deleteMany({}),
   ]);
 });
@@ -133,8 +148,8 @@ describe("Project API (field resolution + layered services)", () => {
       createProject: {
         _id: string;
         title: string;
-        owner: { _id: string; username: string };
-        contributors: { _id: string; username: string }[];
+        owner: { _id: string; user: { _id: string; username: string } };
+        contributors: { _id: string; user: { _id: string; username: string } }[];
         projectData: { _id: string; tracks: { _id: string; name: string }[] };
       };
     }>(stack.apollo, CREATE_PROJECT, {
@@ -144,8 +159,13 @@ describe("Project API (field resolution + layered services)", () => {
     expect(created.errors).toBeUndefined();
     const project = created.data!.createProject;
     expect(project.title).toBe("First Song");
-    expect(project.owner).toMatchObject({ _id: ownerId, username: "owner" });
-    expect(project.contributors).toEqual([{ _id: contributorId, username: "contrib" }]);
+    // `owner`/`contributors` are now ProjectUser memberships; the User is nested.
+    expect(project.owner.user).toMatchObject({ _id: ownerId, username: "owner" });
+    expect(project.contributors).toHaveLength(1);
+    expect(project.contributors[0]?.user).toMatchObject({
+      _id: contributorId,
+      username: "contrib",
+    });
     expect(project.projectData._id).toBeTruthy();
 
     // ProjectData was created as a side effect of creating the project.
@@ -157,13 +177,11 @@ describe("Project API (field resolution + layered services)", () => {
     expect(data?.tracks).toHaveLength(1);
     expect(String(data?.tracks[0]?.creator)).toBe(ownerId);
 
-    const fetched = await execute<{ project: { title: string; owner: { username: string } } | null }>(
-      stack.apollo,
-      GET_PROJECT,
-      { id: project._id },
-    );
+    const fetched = await execute<{
+      project: { title: string; owner: { user: { username: string } } } | null;
+    }>(stack.apollo, GET_PROJECT, { id: project._id });
     expect(fetched.data?.project?.title).toBe("First Song");
-    expect(fetched.data?.project?.owner.username).toBe("owner");
+    expect(fetched.data?.project?.owner.user.username).toBe("owner");
   });
 
   it("returns projects a user owns or contributes to", async () => {
@@ -204,7 +222,7 @@ describe("Project API (field resolution + layered services)", () => {
         _id: string;
         title: string;
         archived: boolean;
-        owner: { _id: string };
+        owner: { _id: string; user: { _id: string } };
         contributors: { _id: string }[];
         projectData: { _id: string };
       };
@@ -215,7 +233,7 @@ describe("Project API (field resolution + layered services)", () => {
     // Title is two non-empty words (an adjective + noun phrase).
     expect(project.title.trim().split(/\s+/)).toHaveLength(2);
     expect(project.archived).toBe(false);
-    expect(project.owner._id).toBe(ownerId);
+    expect(project.owner.user._id).toBe(ownerId);
     expect(project.contributors).toEqual([]);
     expect(project.projectData._id).toBeTruthy();
     await expect(ProjectDataModel.countDocuments()).resolves.toBe(1);

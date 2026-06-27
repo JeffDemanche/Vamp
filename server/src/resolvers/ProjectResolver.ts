@@ -14,7 +14,7 @@ import {
 import type { ServerContext } from "../context";
 import { Project } from "../entities/Project";
 import { ProjectData } from "../entities/ProjectData";
-import { User } from "../entities/User";
+import { ProjectUser } from "../entities/ProjectUser";
 
 /**
  * Extract the string id from a Typegoose `Ref`, whether it is an unpopulated
@@ -111,24 +111,24 @@ export class ProjectResolver {
     });
   }
 
-  @FieldResolver(() => User)
+  @FieldResolver(() => ProjectUser)
   async owner(
     @Root() project: Project,
     @Ctx() ctx: ServerContext,
-  ): Promise<User> {
-    const owner = await ctx.services.users.findById(refToId(project.owner));
+  ): Promise<ProjectUser> {
+    const owner = await ctx.services.projectUsers.findById(refToId(project.owner));
     if (!owner) {
       throw new Error(`Owner not found for project ${project._id}`);
     }
     return owner;
   }
 
-  @FieldResolver(() => [User])
+  @FieldResolver(() => [ProjectUser])
   async contributors(
     @Root() project: Project,
     @Ctx() ctx: ServerContext,
-  ): Promise<User[]> {
-    return ctx.services.users.findByIds(project.contributors.map(refToId));
+  ): Promise<ProjectUser[]> {
+    return ctx.services.projectUsers.findByIds(project.contributors.map(refToId));
   }
 
   @FieldResolver(() => ProjectData)

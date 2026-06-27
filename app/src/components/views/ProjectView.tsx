@@ -56,14 +56,14 @@ export function ProjectView() {
       <header className="shrink-0">
         <ProjectTitleField projectId={project._id} title={project.title} />
         <p className="mt-1 px-1 text-sm text-muted-foreground">
-          Owned by {project.owner.username}
+          Owned by {project.owner.user.username}
         </p>
       </header>
 
       <div className="mt-6 flex min-h-0 flex-1 gap-3">
         <TrackPane projectId={project._id} />
         <div className="min-w-0 flex-1">
-          <TimelineEditor />
+          <TimelineEditor projectId={project._id} initialState={data?.projectUser} />
         </div>
       </div>
     </div>

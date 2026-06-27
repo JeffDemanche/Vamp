@@ -1,16 +1,43 @@
 import { ProjectUser, ProjectUserModel } from "../entities/ProjectUser";
 
-/** The playback range to persist on a {@link ProjectUser}. */
-export interface SetProjectUserPlaybackData {
-  playStart: number;
-  playEnd: number | null;
+/**
+ * The persistable {@link ProjectUser} editor-view fields. Every field is
+ * optional so callers can persist just the values that changed; omitted fields
+ * are left untouched (and fall back to schema defaults on first insert). New
+ * persisted view-state fields slot in here without touching the upsert logic.
+ */
+export interface ProjectUserStateData {
+  playStart?: number;
+  playEnd?: number;
+  loop?: boolean;
+  viewportStart?: number;
+  viewportEnd?: number;
 }
+
+/** The mutable fields, used to project `data` into a Mongo `$set`. */
+const STATE_FIELDS = [
+  "playStart",
+  "playEnd",
+  "loop",
+  "viewportStart",
+  "viewportEnd",
+] as const;
 
 /**
  * Data-access layer for {@link ProjectUser}. The only place that touches the
  * Typegoose model directly.
  */
 export class ProjectUserRepository {
+  findById(id: string): Promise<ProjectUser | null> {
+    return ProjectUserModel.findById(id).lean<ProjectUser>().exec();
+  }
+
+  findByIds(ids: string[]): Promise<ProjectUser[]> {
+    return ProjectUserModel.find({ _id: { $in: ids } })
+      .lean<ProjectUser[]>()
+      .exec();
+  }
+
   findByProjectAndUser(
     projectId: string,
     userId: string,
@@ -20,22 +47,34 @@ export class ProjectUserRepository {
       .exec();
   }
 
+  /** The ids of every membership record belonging to a user, across projects. */
+  async findIdsByUser(userId: string): Promise<string[]> {
+    const docs = await ProjectUserModel.find({ user: userId })
+      .select("_id")
+      .lean<Pick<ProjectUser, "_id">[]>()
+      .exec();
+    return docs.map((doc) => String(doc._id));
+  }
+
   /**
-   * Create or update the playback range for a `(project, user)` pair, returning
-   * the resulting document. Upserts so the first save for a project transparently
-   * creates the row.
+   * Create or update a `(project, user)` pair's editor view state, returning the
+   * resulting document. Only the provided fields are written; the upsert creates
+   * the row (with defaults for anything omitted) on the first save.
    */
-  async upsertPlayback(
+  async upsertState(
     projectId: string,
     userId: string,
-    data: SetProjectUserPlaybackData,
+    data: ProjectUserStateData,
   ): Promise<ProjectUser> {
+    const $set: Partial<Record<(typeof STATE_FIELDS)[number], number | boolean>> = {};
+    for (const field of STATE_FIELDS) {
+      const value = data[field];
+      if (value !== undefined) $set[field] = value;
+    }
+
     const doc = await ProjectUserModel.findOneAndUpdate(
       { project: projectId, user: userId },
-      {
-        $set: { playStart: data.playStart, playEnd: data.playEnd },
-        $setOnInsert: { project: projectId, user: userId },
-      },
+      { $set, $setOnInsert: { project: projectId, user: userId } },
       { returnDocument: "after", upsert: true, setDefaultsOnInsert: true },
     )
       .lean<ProjectUser>()

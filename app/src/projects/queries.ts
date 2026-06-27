@@ -29,8 +29,10 @@ export const CreateEmptyProjectMutation = graphql(`
 
 /**
  * A single project with the metadata the `ProjectView` header needs (title and
- * owner) plus the project's tracks for the editor's track pane. Used to populate
- * the project editor screen.
+ * owner) plus the project's tracks for the editor's track pane. Also fetches the
+ * signed-in user's `ProjectUser` (their saved editor view state) so the timeline
+ * can initialize its jotai state from it. Used to populate the project editor
+ * screen.
  */
 export const ProjectQuery = graphql(`
   query Project($id: ID!) {
@@ -39,7 +41,10 @@ export const ProjectQuery = graphql(`
       title
       owner {
         _id
-        username
+        user {
+          _id
+          username
+        }
       }
       projectData {
         _id
@@ -48,6 +53,14 @@ export const ProjectQuery = graphql(`
           name
         }
       }
+    }
+    projectUser(projectId: $id) {
+      _id
+      playStart
+      playEnd
+      loop
+      viewportStart
+      viewportEnd
     }
   }
 `);
@@ -58,6 +71,24 @@ export const UpdateProjectMetadataMutation = graphql(`
     updateProjectMetadata(input: $input) {
       _id
       title
+    }
+  }
+`);
+
+/**
+ * Persists (a subset of) the signed-in user's editor view state for a project —
+ * the timeline viewport, playback range, and loop flag. Used by `ProjectUserSync`
+ * to save local timeline state as it changes.
+ */
+export const UpdateProjectUserStateMutation = graphql(`
+  mutation UpdateProjectUserState($input: UpdateProjectUserStateInput!) {
+    updateProjectUserState(input: $input) {
+      _id
+      playStart
+      playEnd
+      loop
+      viewportStart
+      viewportEnd
     }
   }
 `);

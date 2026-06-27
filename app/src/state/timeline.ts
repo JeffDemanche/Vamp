@@ -108,7 +108,7 @@ export const viewportDurationAtom = atom((get) => {
  */
 export const panViewportAtom = atom(null, (get, set, deltaSamples: number) => {
   const { start, end } = get(viewportAtom);
-  set(viewportAtom, { start: start + deltaSamples, end: end + deltaSamples });
+  set(viewportAtom, roundViewport(start + deltaSamples, end + deltaSamples));
 });
 
 /**
@@ -127,10 +127,13 @@ export const zoomViewportAtom = atom(
     );
     // Re-derive the actual factor after clamping so both edges stay consistent.
     const appliedFactor = targetDuration / duration;
-    set(viewportAtom, {
-      start: focusSample - (focusSample - start) * appliedFactor,
-      end: focusSample + (end - focusSample) * appliedFactor,
-    });
+    set(
+      viewportAtom,
+      roundViewport(
+        focusSample - (focusSample - start) * appliedFactor,
+        focusSample + (end - focusSample) * appliedFactor,
+      ),
+    );
   },
 );
 
@@ -139,8 +142,9 @@ export const zoomViewportAtom = atom(
  * the new start, it is pushed along to keep `playEnd >= playStart`.
  */
 export const setPlayStartAtom = atom(null, (get, set, sample: number) => {
-  set(playStartAtom, sample);
-  if (get(playEndAtom) < sample) set(playEndAtom, sample);
+  const rounded = Math.round(sample);
+  set(playStartAtom, rounded);
+  if (get(playEndAtom) < rounded) set(playEndAtom, rounded);
 });
 
 /**
@@ -148,7 +152,7 @@ export const setPlayStartAtom = atom(null, (get, set, sample: number) => {
  * playback start.
  */
 export const setPlayEndAtom = atom(null, (get, set, sample: number) => {
-  set(playEndAtom, Math.max(sample, get(playStartAtom)));
+  set(playEndAtom, Math.max(Math.round(sample), get(playStartAtom)));
 });
 
 /** Flip looping on/off. */
@@ -158,6 +162,49 @@ export const toggleLoopAtom = atom(null, (get, set) => {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+/**
+ * Build a viewport with integer sample edges. The timeline is measured in whole
+ * samples (see `AGENTS.md`), and these coordinates are persisted to the server's
+ * integer-typed `ProjectUser` fields, so zoom/pan math must be rounded before it
+ * lands in the viewport atom.
+ */
+function roundViewport(start: number, end: number): TimelineViewport {
+  return { start: Math.round(start), end: Math.round(end) };
+}
+
+// --- Persisted editor state -----------------------------------------------
+
+/**
+ * The slice of editor state persisted per user on the server (the `ProjectUser`
+ * model): the timeline viewport plus the playback range and loop flag. These
+ * are values that belong to one user's *view* of a project rather than its
+ * shared content.
+ *
+ * Aggregated into a single derived atom so one listener (`ProjectUserSync`) can
+ * watch and sync it. To persist a new piece of view state, add a field here and
+ * to the server `ProjectUser` — the sync picks it up automatically.
+ */
+export type PersistedEditorState = {
+  viewportStart: number;
+  viewportEnd: number;
+  playStart: number;
+  playEnd: number;
+  loop: boolean;
+};
+
+export const persistedEditorStateAtom = atom<PersistedEditorState>((get) => ({
+  viewportStart: get(viewportStartAtom),
+  viewportEnd: get(viewportEndAtom),
+  playStart: get(playStartAtom),
+  playEnd: get(playEndAtom),
+  loop: get(loopEnabledAtom),
+}));
+
+/** Read the aggregated editor view state that is persisted per user. */
+export function usePersistedEditorState(): PersistedEditorState {
+  return useAtomValue(persistedEditorStateAtom);
 }
 
 // --- Consumption hook -----------------------------------------------------

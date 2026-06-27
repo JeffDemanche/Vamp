@@ -26,16 +26,16 @@ type Mutation {
   logout: Boolean!
   register(input: RegisterInput!): User!
   setProjectArchived(archived: Boolean!, id: ID!): Project!
-  setProjectUserPlayback(input: SetProjectUserPlaybackInput!): ProjectUser!
   updateProjectMetadata(input: UpdateProjectMetadataInput!): Project!
+  updateProjectUserState(input: UpdateProjectUserStateInput!): ProjectUser!
 }
 
 type Project {
   _id: ID!
   archived: Boolean!
-  contributors: [User!]!
+  contributors: [ProjectUser!]!
   createdAt: DateTimeISO!
-  owner: User!
+  owner: ProjectUser!
   projectData: ProjectData!
   title: String!
 }
@@ -64,8 +64,12 @@ type ProjectTrack {
 type ProjectUser {
   _id: ID!
   createdAt: DateTimeISO!
-  playEnd: Int
+  loop: Boolean!
+  playEnd: Int!
   playStart: Int!
+  user: User!
+  viewportEnd: Int!
+  viewportStart: Int!
 }
 
 type Query {
@@ -84,15 +88,18 @@ input RegisterInput {
   username: String!
 }
 
-input SetProjectUserPlaybackInput {
-  playEnd: Int
-  playStart: Int!
-  projectId: ID!
-}
-
 input UpdateProjectMetadataInput {
   id: ID!
   title: String
+}
+
+input UpdateProjectUserStateInput {
+  loop: Boolean
+  playEnd: Int
+  playStart: Int
+  projectId: ID!
+  viewportEnd: Int
+  viewportStart: Int
 }
 
 type User {

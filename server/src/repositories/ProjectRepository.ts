@@ -1,8 +1,12 @@
 import { Project, ProjectModel } from "../entities/Project";
 
 export interface CreateProjectData {
+  /** Pre-generated id so memberships can reference the project before it exists. */
+  _id: string;
   title: string;
+  /** The owner's `ProjectUser` (membership) id. */
   owner: string;
+  /** The contributors' `ProjectUser` (membership) ids. */
   contributors: string[];
   projectData: string;
 }
@@ -23,12 +27,19 @@ export class ProjectRepository {
   }
 
   /**
-   * Projects a user owns or is a contributor on, newest first. Archived
-   * projects are excluded unless `includeArchived` is set.
+   * Projects whose `owner` or `contributors` are any of the given membership
+   * (`ProjectUser`) ids, newest first. Archived projects are excluded unless
+   * `includeArchived` is set.
    */
-  findByUser(userId: string, includeArchived = false): Promise<Project[]> {
+  findByMemberships(
+    membershipIds: string[],
+    includeArchived = false,
+  ): Promise<Project[]> {
     const filter: Record<string, unknown> = {
-      $or: [{ owner: userId }, { contributors: userId }],
+      $or: [
+        { owner: { $in: membershipIds } },
+        { contributors: { $in: membershipIds } },
+      ],
     };
     if (!includeArchived) {
       filter.archived = { $ne: true };

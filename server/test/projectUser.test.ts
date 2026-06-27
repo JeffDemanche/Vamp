@@ -27,16 +27,22 @@ const PROJECT_USER = /* GraphQL */ `
       _id
       playStart
       playEnd
+      loop
+      viewportStart
+      viewportEnd
     }
   }
 `;
 
-const SET_PROJECT_USER_PLAYBACK = /* GraphQL */ `
-  mutation SetProjectUserPlayback($input: SetProjectUserPlaybackInput!) {
-    setProjectUserPlayback(input: $input) {
+const UPDATE_PROJECT_USER_STATE = /* GraphQL */ `
+  mutation UpdateProjectUserState($input: UpdateProjectUserStateInput!) {
+    updateProjectUserState(input: $input) {
       _id
       playStart
       playEnd
+      loop
+      viewportStart
+      viewportEnd
     }
   }
 `;
@@ -82,63 +88,114 @@ async function createProject(ownerId: string): Promise<string> {
 }
 
 describe("ProjectUser API (per-user project state)", () => {
-  it("returns null before any state is saved", async () => {
+  it("returns the owner's default membership state created with the project", async () => {
     const userId = await createUser("user-one", "u@example.com");
     const projectId = await createProject(userId);
 
-    const res = await execute<{ projectUser: unknown | null }>(
-      stack.apollo,
-      PROJECT_USER,
-      { projectId },
-      asUser(userId),
-    );
+    // Creating the project provisions the owner's ProjectUser membership, so it
+    // reads back with default view state (not null) even before any edits.
+    const res = await execute<{
+      projectUser: {
+        playStart: number;
+        playEnd: number;
+        loop: boolean;
+        viewportStart: number;
+        viewportEnd: number;
+      } | null;
+    }>(stack.apollo, PROJECT_USER, { projectId }, asUser(userId));
     expect(res.errors).toBeUndefined();
-    expect(res.data?.projectUser).toBeNull();
+    expect(res.data?.projectUser).toMatchObject({
+      playStart: 0,
+      playEnd: 441_000,
+      loop: false,
+      viewportStart: -44_100,
+      viewportEnd: 441_000,
+    });
   });
 
-  it("upserts and reads back the playback range for the current user", async () => {
+  it("upserts and reads back the editor view state for the current user", async () => {
+    const userId = await createUser("user-one", "u@example.com");
+    const projectId = await createProject(userId);
+
+    const saved = await execute<{ updateProjectUserState: { _id: string } }>(
+      stack.apollo,
+      UPDATE_PROJECT_USER_STATE,
+      {
+        input: {
+          projectId,
+          playStart: 44_100,
+          playEnd: 88_200,
+          loop: true,
+          viewportStart: -1_000,
+          viewportEnd: 200_000,
+        },
+      },
+      asUser(userId),
+    );
+    expect(saved.errors).toBeUndefined();
+    expect(saved.data?.updateProjectUserState).toMatchObject({
+      playStart: 44_100,
+      playEnd: 88_200,
+      loop: true,
+      viewportStart: -1_000,
+      viewportEnd: 200_000,
+    });
+
+    // A second save for the same (project, user) updates in place, not inserts.
+    const updated = await execute<{ updateProjectUserState: { _id: string } }>(
+      stack.apollo,
+      UPDATE_PROJECT_USER_STATE,
+      { input: { projectId, playStart: 1_000, loop: false } },
+      asUser(userId),
+    );
+    expect(updated.data?.updateProjectUserState._id).toBe(
+      saved.data?.updateProjectUserState._id,
+    );
+    // Only the provided fields change; the rest are left untouched.
+    expect(updated.data?.updateProjectUserState).toMatchObject({
+      playStart: 1_000,
+      playEnd: 88_200,
+      loop: false,
+      viewportStart: -1_000,
+      viewportEnd: 200_000,
+    });
+    await expect(ProjectUserModel.countDocuments()).resolves.toBe(1);
+
+    const fetched = await execute<{
+      projectUser: { playStart: number; playEnd: number; loop: boolean };
+    }>(stack.apollo, PROJECT_USER, { projectId }, asUser(userId));
+    expect(fetched.data?.projectUser).toMatchObject({
+      playStart: 1_000,
+      playEnd: 88_200,
+      loop: false,
+    });
+  });
+
+  it("leaves omitted fields at their defaults when updating a subset", async () => {
     const userId = await createUser("user-one", "u@example.com");
     const projectId = await createProject(userId);
 
     const saved = await execute<{
-      setProjectUserPlayback: { _id: string; playStart: number; playEnd: number | null };
+      updateProjectUserState: {
+        playStart: number;
+        playEnd: number;
+        loop: boolean;
+        viewportStart: number;
+        viewportEnd: number;
+      };
     }>(
       stack.apollo,
-      SET_PROJECT_USER_PLAYBACK,
-      { input: { projectId, playStart: 44_100, playEnd: 88_200 } },
+      UPDATE_PROJECT_USER_STATE,
+      { input: { projectId, viewportStart: -5_000, viewportEnd: 500_000 } },
       asUser(userId),
     );
-    expect(saved.errors).toBeUndefined();
-    expect(saved.data?.setProjectUserPlayback).toMatchObject({
-      playStart: 44_100,
-      playEnd: 88_200,
+    expect(saved.data?.updateProjectUserState).toMatchObject({
+      viewportStart: -5_000,
+      viewportEnd: 500_000,
+      playStart: 0,
+      playEnd: 441_000,
+      loop: false,
     });
-
-    // A second save for the same (project, user) updates in place, not inserts.
-    const updated = await execute<{
-      setProjectUserPlayback: { _id: string; playStart: number; playEnd: number | null };
-    }>(
-      stack.apollo,
-      SET_PROJECT_USER_PLAYBACK,
-      { input: { projectId, playStart: 1_000, playEnd: null } },
-      asUser(userId),
-    );
-    expect(updated.data?.setProjectUserPlayback._id).toBe(
-      saved.data?.setProjectUserPlayback._id,
-    );
-    expect(updated.data?.setProjectUserPlayback).toMatchObject({
-      playStart: 1_000,
-      playEnd: null,
-    });
-    await expect(ProjectUserModel.countDocuments()).resolves.toBe(1);
-
-    const fetched = await execute<{ projectUser: { playStart: number; playEnd: number | null } }>(
-      stack.apollo,
-      PROJECT_USER,
-      { projectId },
-      asUser(userId),
-    );
-    expect(fetched.data?.projectUser).toMatchObject({ playStart: 1_000, playEnd: null });
   });
 
   it("scopes state per user — another user sees their own (absent) state", async () => {
@@ -148,8 +205,8 @@ describe("ProjectUser API (per-user project state)", () => {
 
     await execute(
       stack.apollo,
-      SET_PROJECT_USER_PLAYBACK,
-      { input: { projectId, playStart: 5_000, playEnd: null } },
+      UPDATE_PROJECT_USER_STATE,
+      { input: { projectId, playStart: 5_000 } },
       asUser(userA),
     );
 

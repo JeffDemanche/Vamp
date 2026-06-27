@@ -1,7 +1,9 @@
+import { Types } from "mongoose";
 import type { Project } from "../entities/Project";
 import { generateProjectName } from "../lib/projectName";
 import type { ProjectRepository } from "../repositories/ProjectRepository";
 import type { ProjectDataService } from "./ProjectDataService";
+import type { ProjectUserService } from "./ProjectUserService";
 
 export interface CreateProjectInput {
   title: string;
@@ -23,6 +25,7 @@ export class ProjectService {
   constructor(
     private readonly projects: ProjectRepository,
     private readonly projectData: ProjectDataService,
+    private readonly projectUsers: ProjectUserService,
   ) {}
 
   findById(id: string): Promise<Project | null> {
@@ -30,19 +33,42 @@ export class ProjectService {
   }
 
   /**
-   * Projects the given user owns or contributes to. Archived projects are
-   * excluded unless `includeArchived` is set.
+   * Projects the given user owns or contributes to. Resolved through the user's
+   * `ProjectUser` memberships (which `owner`/`contributors` reference). Archived
+   * projects are excluded unless `includeArchived` is set.
    */
-  findByUser(userId: string, includeArchived = false): Promise<Project[]> {
-    return this.projects.findByUser(userId, includeArchived);
+  async findByUser(userId: string, includeArchived = false): Promise<Project[]> {
+    const membershipIds = await this.projectUsers.findIdsByUser(userId);
+    if (membershipIds.length === 0) return [];
+    return this.projects.findByMemberships(membershipIds, includeArchived);
   }
 
+  /**
+   * Create a project together with its backing {@link ProjectData} and the
+   * {@link ProjectUser} memberships for its owner and contributors. The project
+   * id is generated up front so the memberships can reference it before the
+   * project document is written; `owner`/`contributors` then store membership
+   * ids rather than bare user ids.
+   */
   async create(input: CreateProjectInput): Promise<Project> {
+    const projectId = new Types.ObjectId().toHexString();
     const data = await this.projectData.create(input.ownerId);
+
+    const ownerMembership = await this.projectUsers.ensureMembership(
+      projectId,
+      input.ownerId,
+    );
+    const contributorMemberships = await Promise.all(
+      (input.contributorIds ?? []).map((userId) =>
+        this.projectUsers.ensureMembership(projectId, userId),
+      ),
+    );
+
     return this.projects.create({
+      _id: projectId,
       title: input.title,
-      owner: input.ownerId,
-      contributors: input.contributorIds ?? [],
+      owner: String(ownerMembership._id),
+      contributors: contributorMemberships.map((m) => String(m._id)),
       projectData: String(data._id),
     });
   }

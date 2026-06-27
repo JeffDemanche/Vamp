@@ -1,4 +1,5 @@
-import { Provider } from "jotai"
+import { Provider, type WritableAtom } from "jotai"
+import { useHydrateAtoms } from "jotai/utils"
 
 import {
   AudioEngineProvider,
@@ -6,8 +7,48 @@ import {
   useAudioEngineTimecode,
 } from "@/audio/AudioEngineProvider"
 import { Timeline } from "@/components/composites/timeline"
+import { ProjectUserSync } from "@/components/features/ProjectUserSync"
 import { TimelineToolbar } from "@/components/features/TimelineToolbar"
-import { useTimelinePlayback, useTimelineViewport } from "@/state/timeline"
+import {
+  loopEnabledAtom,
+  playEndAtom,
+  playStartAtom,
+  useTimelinePlayback,
+  useTimelineViewport,
+  viewportAtom,
+} from "@/state/timeline"
+
+/**
+ * The saved editor view state used to seed the timeline, mirroring the
+ * persisted fields on `ProjectUser`. Null when the user has no saved state.
+ */
+export type InitialEditorState = {
+  viewportStart: number
+  viewportEnd: number
+  playStart: number
+  playEnd: number
+  loop: boolean
+} | null | undefined
+
+/**
+ * Seeds the editor's jotai atoms from the active user's saved `ProjectUser`
+ * state on first render (before children read the atoms). When there is no saved
+ * state, the atoms keep their module defaults. One-shot per `Provider`.
+ */
+function HydrateEditorState({ state }: { state: InitialEditorState }) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const values: Array<readonly [WritableAtom<unknown, any[], unknown>, unknown]> =
+    state
+      ? [
+          [viewportAtom, { start: state.viewportStart, end: state.viewportEnd }],
+          [playStartAtom, state.playStart],
+          [playEndAtom, state.playEnd],
+          [loopEnabledAtom, state.loop],
+        ]
+      : []
+  useHydrateAtoms(values)
+  return null
+}
 
 /**
  * Domain-aware wrapper that connects the timeline's jotai viewport and playback
@@ -41,11 +82,21 @@ function TimelineEditorInner() {
  * Entry point for the project editor's timeline. Owns a jotai `Provider` (so the
  * viewport/playback state is scoped to this editor instance and resets on
  * unmount) and an `AudioEngineProvider` (one engine per editor), then stacks the
- * playback `TimelineToolbar` above the timeline surface.
+ * playback `TimelineToolbar` above the timeline surface. The state is seeded from
+ * the active user's saved `ProjectUser` (`initialState`), and a `ProjectUserSync`
+ * listener persists changes back as the user edits.
  */
-function TimelineEditor() {
+function TimelineEditor({
+  projectId,
+  initialState,
+}: {
+  projectId: string
+  initialState?: InitialEditorState
+}) {
   return (
     <Provider>
+      <HydrateEditorState state={initialState} />
+      <ProjectUserSync projectId={projectId} />
       <AudioEngineProvider>
         <div className="flex h-full flex-col">
           <TimelineToolbar />

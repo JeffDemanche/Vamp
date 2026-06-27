@@ -1,27 +1,52 @@
+import { Types } from "mongoose";
 import {
   Arg,
   Ctx,
   Field,
+  FieldResolver,
   ID,
   InputType,
   Int,
   Mutation,
   Query,
   Resolver,
+  Root,
 } from "type-graphql";
 import type { ServerContext } from "../context";
 import { ProjectUser } from "../entities/ProjectUser";
+import { User } from "../entities/User";
+
+/**
+ * Extract the string id from a Typegoose `Ref`, whether it is an unpopulated
+ * `ObjectId` or an already-populated document.
+ */
+function refToId(ref: unknown): string {
+  if (ref instanceof Types.ObjectId) return ref.toHexString();
+  if (ref && typeof ref === "object" && "_id" in ref) {
+    return String((ref as { _id: unknown })._id);
+  }
+  return String(ref);
+}
 
 @InputType()
-export class SetProjectUserPlaybackInput {
+export class UpdateProjectUserStateInput {
   @Field(() => ID)
   projectId!: string;
 
-  @Field(() => Int)
-  playStart!: number;
+  @Field(() => Int, { nullable: true })
+  playStart?: number;
 
   @Field(() => Int, { nullable: true })
-  playEnd?: number | null;
+  playEnd?: number;
+
+  @Field({ nullable: true })
+  loop?: boolean;
+
+  @Field(() => Int, { nullable: true })
+  viewportStart?: number;
+
+  @Field(() => Int, { nullable: true })
+  viewportEnd?: number;
 }
 
 /**
@@ -41,17 +66,37 @@ export class ProjectUserResolver {
     return ctx.services.projectUsers.findByProjectAndUser(projectId, userId);
   }
 
-  /** Persist the current user's playback range for a project. */
+  /**
+   * Persist (a subset of) the current user's editor view state for a project.
+   * Only the provided fields are written, so the client can sync just what
+   * changed (e.g. the viewport without touching the playback range).
+   */
   @Mutation(() => ProjectUser)
-  async setProjectUserPlayback(
-    @Arg("input") input: SetProjectUserPlaybackInput,
+  async updateProjectUserState(
+    @Arg("input") input: UpdateProjectUserStateInput,
     @Ctx() ctx: ServerContext,
   ): Promise<ProjectUser> {
     const userId = requireUserId(ctx);
-    return ctx.services.projectUsers.setPlayback(input.projectId, userId, {
+    return ctx.services.projectUsers.updateState(input.projectId, userId, {
       playStart: input.playStart,
-      playEnd: input.playEnd ?? null,
+      playEnd: input.playEnd,
+      loop: input.loop,
+      viewportStart: input.viewportStart,
+      viewportEnd: input.viewportEnd,
     });
+  }
+
+  /** The {@link User} this membership belongs to. */
+  @FieldResolver(() => User)
+  async user(
+    @Root() projectUser: ProjectUser,
+    @Ctx() ctx: ServerContext,
+  ): Promise<User> {
+    const user = await ctx.services.users.findById(refToId(projectUser.user));
+    if (!user) {
+      throw new Error(`User not found for ProjectUser ${projectUser._id}`);
+    }
+    return user;
   }
 }
 
