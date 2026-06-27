@@ -26,3 +26,30 @@ export const CreateEmptyProjectMutation = graphql(`
     }
   }
 `);
+
+/**
+ * A single project with the metadata the `ProjectView` header needs (title and
+ * owner). Used to populate the project editor screen.
+ */
+export const ProjectQuery = graphql(`
+  query Project($id: ID!) {
+    project(id: $id) {
+      _id
+      title
+      owner {
+        _id
+        username
+      }
+    }
+  }
+`);
+
+/** Updates metadata stored directly on a project, currently its title. */
+export const UpdateProjectMetadataMutation = graphql(`
+  mutation UpdateProjectMetadata($input: UpdateProjectMetadataInput!) {
+    updateProjectMetadata(input: $input) {
+      _id
+      title
+    }
+  }
+`);
