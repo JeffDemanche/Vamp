@@ -71,7 +71,7 @@ const publicBaseUrl = (
 
 export const config: AppConfig = {
   port,
-  mongoUri: process.env.MONGO_URI ?? "mongodb://127.0.0.1:27017/vamp",
+  mongoUri: process.env.MONGODB_URI ?? "mongodb://127.0.0.1:27017/vamp",
   nodeEnv,
   auth: {
     cookieName: process.env.SESSION_COOKIE_NAME ?? "vamp_session",

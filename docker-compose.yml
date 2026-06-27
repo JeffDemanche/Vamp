@@ -28,7 +28,7 @@ services:
       - "4000:4000"
     environment:
       PORT: "4000"
-      MONGO_URI: mongodb://mongo:27017/vamp
+      MONGODB_URI: mongodb://mongo:27017/vamp
       # Audio uploads use the local-file driver in dev (no Vercel needed).
       AUDIO_STORAGE_DRIVER: local
       PUBLIC_BASE_URL: http://localhost:4000

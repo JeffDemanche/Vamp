@@ -158,7 +158,7 @@ Required environment variables in the Vercel project:
 
 | Variable                | Purpose                                                        |
 | ----------------------- | ------------------------------------------------------------- |
-| `MONGO_URI`             | Connection string for your MongoDB (e.g. Atlas) cluster       |
+| `MONGODB_URI`             | Connection string for your MongoDB (e.g. Atlas) cluster       |
 | `AUDIO_STORAGE_DRIVER`  | Set to `vercel` to store audio bytes in Vercel Blob           |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob read-write token (required when driver = `vercel`) |
 
@@ -171,7 +171,7 @@ combined server (it serves `app/dist` because `NODE_ENV=production` enables
 
 ```bash
 npm run vercel-build
-NODE_ENV=production MONGO_URI=mongodb://127.0.0.1:27017/vamp npm start
+NODE_ENV=production MONGODB_URI=mongodb://127.0.0.1:27017/vamp npm start
 # → http://localhost:4000 serves the SPA, /graphql, and /audio
 ```
 
