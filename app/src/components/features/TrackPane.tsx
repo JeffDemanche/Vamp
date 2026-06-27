@@ -2,7 +2,10 @@ import { useQuery } from "@apollo/client/react"
 import { Plus } from "lucide-react"
 
 import { TrackInfo } from "@/components/composites/track-info"
-import { TIMELINE_HEADER_HEIGHT } from "@/components/composites/timeline"
+import {
+  TIMELINE_HEADER_HEIGHT,
+  TIMELINE_TOOLBAR_HEIGHT,
+} from "@/components/composites/timeline"
 import { Button } from "@/components/primitives/button"
 import { ProjectQuery } from "@/projects/queries"
 
@@ -24,8 +27,11 @@ export function TrackPane({ projectId }: { projectId: string }) {
       data-testid="track-pane"
       className="flex h-full w-56 shrink-0 flex-col gap-2 overflow-y-auto"
     >
-      {/* Reserve the timeline's header band so rows align with track lanes. */}
-      <div style={{ height: TIMELINE_HEADER_HEIGHT }} className="shrink-0" />
+      {/* Reserve the timeline's toolbar + header band so rows align with track lanes. */}
+      <div
+        style={{ height: TIMELINE_TOOLBAR_HEIGHT + TIMELINE_HEADER_HEIGHT }}
+        className="shrink-0"
+      />
 
       {tracks.map((track) => (
         <TrackInfo key={track._id} name={track.name} />

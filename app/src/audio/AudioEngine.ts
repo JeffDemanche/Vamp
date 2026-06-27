@@ -68,8 +68,18 @@ export type AudioEngineState = {
   sampleRate: number;
   /** Timeline sample where playback begins. */
   playStart: number;
-  /** Timeline sample where playback stops/loops, or `null` to play indefinitely. */
-  playEnd: number | null;
+  /**
+   * Timeline sample where playback loops back to `playStart`. Only consulted
+   * when `loop` is `true`; otherwise it is ignored and playback runs
+   * indefinitely.
+   */
+  playEnd: number;
+  /**
+   * When `true`, reaching `playEnd` restarts playback from `playStart` instead
+   * of continuing. When `false`, `playEnd` is ignored and playback runs
+   * indefinitely (until stopped or all events finish).
+   */
+  loop: boolean;
 };
 
 /**
@@ -108,7 +118,8 @@ const EMPTY_STATE: AudioEngineState = {
   clips: [],
   sampleRate: DEFAULT_SAMPLE_RATE,
   playStart: 0,
-  playEnd: null,
+  playEnd: 0,
+  loop: false,
 };
 
 const defaultContextFactory: AudioContextFactory = () => {
@@ -154,7 +165,7 @@ export class AudioEngine {
   /** Timeline sample reported while not playing (the cued/last-stopped point). */
   private frozenSample = 0;
 
-  /** Timer that stops playback when it reaches `playEnd`. */
+  /** Timer that loops playback back to `playStart` when it reaches `playEnd` (looping only). */
   private endTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly listeners = new Set<PlayingListener>();
@@ -213,13 +224,13 @@ export class AudioEngine {
   // --- Transport ----------------------------------------------------------
 
   /**
-   * Begin playback from the state's `playStart`. No-op if already playing or if
-   * the playback range is empty (`playEnd <= playStart`).
+   * Begin playback from the state's `playStart`. No-op if already playing, or if
+   * looping is on with an empty loop region (`playEnd <= playStart`).
    */
   play(): void {
     if (this.playing) return;
-    const { playStart, playEnd } = this.state;
-    if (playEnd !== null && playEnd <= playStart) return;
+    const { playStart, playEnd, loop } = this.state;
+    if (loop && playEnd <= playStart) return;
 
     this.playing = true;
     this.scheduleFrom(playStart);
@@ -253,20 +264,20 @@ export class AudioEngine {
   /**
    * The current timeline position, in samples. While playing it is computed
    * live from the audio clock; while stopped it holds the cued/last-stopped
-   * position. Clamped to `playEnd` when one is set.
+   * position. Clamped to `playEnd` only while looping (otherwise unbounded).
    */
   get timecode(): number {
     if (!this.playing || !this.context) return this.frozenSample;
     const elapsedSeconds = this.context.currentTime - this.contextStartTime;
     const sample = this.playheadStartSample + elapsedSeconds * this.state.sampleRate;
-    const { playEnd } = this.state;
-    if (playEnd !== null && sample > playEnd) return playEnd;
+    const { playEnd, loop } = this.state;
+    if (loop && sample > playEnd) return playEnd;
     return sample;
   }
 
   /**
-   * Subscribe to `playing` state changes (e.g. so a play/stop button can flip
-   * when playback ends naturally at `playEnd`). Returns an unsubscribe fn.
+   * Subscribe to `playing` state changes (e.g. so a play/stop button can stay
+   * in sync with the transport). Returns an unsubscribe fn.
    */
   subscribe(listener: PlayingListener): () => void {
     this.listeners.add(listener);
@@ -301,13 +312,18 @@ export class AudioEngine {
   }
 
   /**
-   * Schedule all events relative to `fromSample` against the audio clock and
-   * arm the auto-stop timer. Anchors the timecode (`contextStartTime` ↔
-   * `playheadStartSample`) to the moment scheduling happens.
+   * Schedule all events relative to `fromSample` against the audio clock and,
+   * while looping, arm the loop timer at `playEnd`. Anchors the timecode
+   * (`contextStartTime` ↔ `playheadStartSample`) to the moment scheduling
+   * happens. The end boundary only applies while looping; otherwise events play
+   * to their natural ends and playback runs indefinitely.
    */
   private scheduleFrom(fromSample: number): void {
     const ctx = this.ensureContext();
-    const { sampleRate, playEnd } = this.state;
+    const { sampleRate, playEnd, loop } = this.state;
+
+    // `playEnd` is only an end boundary while looping; otherwise unbounded.
+    const boundary = loop ? playEnd : null;
 
     this.contextStartTime = ctx.currentTime;
     this.playheadStartSample = fromSample;
@@ -317,8 +333,8 @@ export class AudioEngine {
       if (!buffer) continue;
 
       // The sample window during which this event sounds, intersected with the
-      // remaining play range [fromSample, playEnd?).
-      const windowEnd = playEnd === null ? event.endSample : Math.min(event.endSample, playEnd);
+      // remaining play range [fromSample, boundary?).
+      const windowEnd = boundary === null ? event.endSample : Math.min(event.endSample, boundary);
       const soundStart = Math.max(event.startSample, fromSample);
       if (soundStart >= windowEnd) continue; // entirely before us or past the end
 
@@ -333,14 +349,24 @@ export class AudioEngine {
       this.activeSources.push(source);
     }
 
-    if (playEnd !== null) {
-      const secondsUntilEnd = (playEnd - fromSample) / sampleRate;
+    if (boundary !== null) {
+      const secondsUntilEnd = (boundary - fromSample) / sampleRate;
       this.endTimer = setTimeout(() => this.handleEnded(), Math.max(0, secondsUntilEnd * 1000));
     }
   }
 
-  /** Reached `playEnd`: freeze at the boundary and report a stop. */
+  /**
+   * Reached `playEnd` while looping: restart from `playStart`. (The loop timer
+   * is only armed while looping, so this just re-schedules; the fallback stop is
+   * defensive in case state changed.)
+   */
   private handleEnded(): void {
+    const { loop, playStart } = this.state;
+    if (loop) {
+      this.teardownPlayback();
+      this.scheduleFrom(playStart);
+      return;
+    }
     this.frozenSample = this.timecode;
     this.teardownPlayback();
     this.playing = false;

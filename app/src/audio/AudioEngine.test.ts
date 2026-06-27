@@ -81,7 +81,8 @@ function stateWith(overrides: Partial<AudioEngineState> = {}): AudioEngineState 
     clips: [],
     sampleRate: SAMPLE_RATE,
     playStart: 0,
-    playEnd: null,
+    playEnd: 0,
+    loop: false,
     ...overrides,
   };
 }
@@ -175,13 +176,22 @@ describe("AudioEngine", () => {
     expect(engine.timecode).toBeCloseTo(1_000 + 2 * SAMPLE_RATE);
   });
 
-  it("clamps the reported timecode to playEnd", () => {
+  it("clamps the reported timecode to playEnd while looping", () => {
     const { ctx, engine } = makeEngine();
-    engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE }));
+    engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: true }));
     engine.play();
 
-    ctx.currentTime += 5; // way past the one-second play range
+    ctx.currentTime += 5; // way past the one-second loop region
     expect(engine.timecode).toBe(SAMPLE_RATE);
+  });
+
+  it("does not bound the timecode at playEnd when not looping", () => {
+    const { ctx, engine } = makeEngine();
+    engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: false }));
+    engine.play();
+
+    ctx.currentTime += 5; // playEnd is ignored without looping
+    expect(engine.timecode).toBeCloseTo(5 * SAMPLE_RATE);
   });
 
   it("freezes the timecode where it stopped and stops sources", () => {
@@ -211,22 +221,47 @@ describe("AudioEngine", () => {
     expect(listener).toHaveBeenNthCalledWith(2, false);
   });
 
-  it("auto-stops and freezes at playEnd via the end timer", () => {
+  it("does not stop at playEnd when not looping (plays indefinitely)", () => {
     jest.useFakeTimers();
     try {
       const { ctx, engine } = makeEngine();
       const listener = jest.fn();
       engine.subscribe(listener);
-      engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE }));
+      engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: false }));
       engine.play();
 
-      // Advance the audio clock to the end, then fire the scheduled end timer.
+      // No loop timer is armed, so advancing the clock/timers keeps playing.
+      ctx.currentTime += 5;
+      jest.advanceTimersByTime(5_000);
+
+      expect(engine.isPlaying).toBe(true);
+      expect(engine.timecode).toBeCloseTo(5 * SAMPLE_RATE);
+      // Only the initial play flipped the listener; no auto-stop occurred.
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenLastCalledWith(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("loops back to playStart at playEnd instead of stopping when looping", () => {
+    jest.useFakeTimers();
+    try {
+      const { ctx, engine } = makeEngine();
+      const listener = jest.fn();
+      engine.subscribe(listener);
+      engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: true }));
+      engine.play();
+
       ctx.currentTime += 1;
       jest.advanceTimersByTime(1_000);
 
-      expect(engine.isPlaying).toBe(false);
-      expect(engine.timecode).toBe(SAMPLE_RATE);
-      expect(listener).toHaveBeenLastCalledWith(false);
+      // Still playing, re-anchored to playStart for the next loop.
+      expect(engine.isPlaying).toBe(true);
+      expect(engine.timecode).toBeCloseTo(0);
+      // Only the initial play flipped the listener; the loop did not stop.
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenLastCalledWith(true);
     } finally {
       jest.useRealTimers();
     }

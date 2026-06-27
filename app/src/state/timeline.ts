@@ -48,8 +48,14 @@ const DEFAULT_VIEWPORT: TimelineViewport = {
 
 /** Playback starts at the origin (sample 0) by default. */
 const DEFAULT_PLAY_START = 0;
-/** No end boundary by default — playback runs indefinitely. */
-const DEFAULT_PLAY_END: number | null = null;
+/**
+ * Default playback end, in samples (10 seconds). Always a concrete sample
+ * position; it only affects playback when `loop` is enabled (it is the point
+ * playback loops back to `playStart`).
+ */
+const DEFAULT_PLAY_END = DEFAULT_SAMPLE_RATE * 10;
+/** Looping is off by default. */
+const DEFAULT_LOOP_ENABLED = false;
 
 // --- Base atoms -----------------------------------------------------------
 
@@ -66,10 +72,19 @@ export const sampleRateAtom = atom<number>(DEFAULT_SAMPLE_RATE);
 export const playStartAtom = atom<number>(DEFAULT_PLAY_START);
 
 /**
- * Sample at which playback ends (or loops). `null` means there is no end
- * boundary and playback continues indefinitely.
+ * Sample at which playback loops back to `playStart`. Always a concrete sample
+ * position (kept `>= playStart`). It only affects playback when `loop` is
+ * enabled; with looping off there is no end boundary and playback continues
+ * indefinitely.
  */
-export const playEndAtom = atom<number | null>(DEFAULT_PLAY_END);
+export const playEndAtom = atom<number>(DEFAULT_PLAY_END);
+
+/**
+ * Whether playback loops back to `playStart` when it reaches `playEnd`. When
+ * off, `playEnd` is ignored and playback runs indefinitely. Drives the
+ * `AudioEngine`'s loop mode.
+ */
+export const loopEnabledAtom = atom<boolean>(DEFAULT_LOOP_ENABLED);
 
 // --- Derived atoms --------------------------------------------------------
 
@@ -120,26 +135,25 @@ export const zoomViewportAtom = atom(
 );
 
 /**
- * Move the playback start to a sample position. If an end boundary exists and
- * would end up before the new start, the end is pushed along to keep
- * `playEnd >= playStart`.
+ * Move the playback start to a sample position. If the end would end up before
+ * the new start, it is pushed along to keep `playEnd >= playStart`.
  */
 export const setPlayStartAtom = atom(null, (get, set, sample: number) => {
   set(playStartAtom, sample);
-  const end = get(playEndAtom);
-  if (end !== null && end < sample) set(playEndAtom, sample);
+  if (get(playEndAtom) < sample) set(playEndAtom, sample);
 });
 
 /**
- * Set (or clear, with `null`) the playback end boundary. A non-null value is
- * clamped so it never falls before the playback start.
+ * Set the playback end (loop) boundary, clamped so it never falls before the
+ * playback start.
  */
-export const setPlayEndAtom = atom(null, (get, set, sample: number | null) => {
-  if (sample === null) {
-    set(playEndAtom, null);
-    return;
-  }
+export const setPlayEndAtom = atom(null, (get, set, sample: number) => {
   set(playEndAtom, Math.max(sample, get(playStartAtom)));
+});
+
+/** Flip looping on/off. */
+export const toggleLoopAtom = atom(null, (get, set) => {
+  set(loopEnabledAtom, !get(loopEnabledAtom));
 });
 
 function clamp(value: number, min: number, max: number): number {
@@ -184,23 +198,30 @@ export function useTimelineViewport(): UseTimelineViewport {
 export type UseTimelinePlayback = {
   /** Sample where playback begins. */
   playStart: number;
-  /** Sample where playback ends/loops, or null to play indefinitely. */
-  playEnd: number | null;
+  /** Sample where playback loops back to `playStart`. Only matters when `loop` is on. */
+  playEnd: number;
+  /** Whether playback loops back to `playStart` upon reaching `playEnd`. */
+  loop: boolean;
   /** Move the playback start to a sample position. */
   setPlayStart: (sample: number) => void;
-  /** Set (or clear, with `null`) the playback end boundary. */
-  setPlayEnd: (sample: number | null) => void;
+  /** Set the playback end (loop) boundary. */
+  setPlayEnd: (sample: number) => void;
+  /** Toggle looping on/off. */
+  toggleLoop: () => void;
 };
 
 /**
- * Typed access to the timeline's playback range (`playStart`/`playEnd`) for
- * feature/view components, returning stable setters that keep the two ordered.
+ * Typed access to the timeline's playback range (`playStart`/`playEnd`/`loop`)
+ * for feature/view components, returning stable setters that keep the range
+ * ordered.
  */
 export function useTimelinePlayback(): UseTimelinePlayback {
   const playStart = useAtomValue(playStartAtom);
   const playEnd = useAtomValue(playEndAtom);
+  const loop = useAtomValue(loopEnabledAtom);
   const setPlayStart = useSetAtom(setPlayStartAtom);
   const setPlayEnd = useSetAtom(setPlayEndAtom);
+  const toggleLoop = useSetAtom(toggleLoopAtom);
 
-  return { playStart, playEnd, setPlayStart, setPlayEnd };
+  return { playStart, playEnd, loop, setPlayStart, setPlayEnd, toggleLoop };
 }

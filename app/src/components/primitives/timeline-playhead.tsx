@@ -16,6 +16,11 @@ type TimelinePlayheadProps = {
   playStart: number
   /** Sample position where playback ends/loops, or null to play indefinitely. */
   playEnd: number | null
+  /**
+   * Live playback position (sample) of the audio engine, drawn as a moving
+   * full-height playhead line. Null when playback is stopped (nothing drawn).
+   */
+  playbackPosition?: number | null
   className?: string
 }
 
@@ -56,10 +61,15 @@ function readCssVar(el: Element, name: string, fallback: string): string {
  * the header band and drops a thin full-height guide line at its sample
  * position. When `playEnd` is null, only the start scrubber is drawn.
  *
- * Pure presentational primitive: the play range and visible window arrive as
- * props; the only internal state is the canvas's measured size and the
- * imperative draw. Theme colors (`--primary` for start, `--secondary-foreground`
- * for end) are resolved from the element's own computed style.
+ * While the audio engine is playing, `playbackPosition` adds a third marker: a
+ * solid, full-height playhead line tracking the live playback position, drawn
+ * in `--destructive` so it reads distinctly from the static range scrubbers.
+ *
+ * Pure presentational primitive: the play range, live position, and visible
+ * window arrive as props; the only internal state is the canvas's measured size
+ * and the imperative draw. Theme colors (`--primary` for start,
+ * `--secondary-foreground` for end, `--destructive` for the live playhead) are
+ * resolved from the element's own computed style.
  */
 function TimelinePlayhead({
   viewportStart,
@@ -67,6 +77,7 @@ function TimelinePlayhead({
   headerHeight,
   playStart,
   playEnd,
+  playbackPosition,
   className,
 }: TimelinePlayheadProps) {
   const { ref, width, height } = useElementSize()
@@ -125,8 +136,33 @@ function TimelinePlayhead({
     drawScrubber(playStart, startColor, 1)
     if (playEnd !== null) drawScrubber(playEnd, endColor, -1)
 
+    // Live playhead: a solid full-height line at the current playback position.
+    if (playbackPosition != null) {
+      const x = xForSample(playbackPosition)
+      if (x >= 0 && x <= width) {
+        const playheadColor = readCssVar(canvas, "--destructive", "currentColor")
+        const lineX = Math.round(x) + 0.5
+        ctx.strokeStyle = playheadColor
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.moveTo(lineX, 0)
+        ctx.lineTo(lineX, height)
+        ctx.stroke()
+      }
+    }
+
     ctx.globalAlpha = 1
-  }, [ref, width, height, viewportStart, viewportEnd, headerHeight, playStart, playEnd])
+  }, [
+    ref,
+    width,
+    height,
+    viewportStart,
+    viewportEnd,
+    headerHeight,
+    playStart,
+    playEnd,
+    playbackPosition,
+  ])
 
   return (
     <canvas

@@ -15,6 +15,11 @@ type TimelineProps = {
   playStart: number
   /** Sample where playback ends/loops; drawn as a backward-facing scrubber. Null hides it. */
   playEnd: number | null
+  /**
+   * Live playback position (sample) to draw as a moving playhead, or null when
+   * playback is stopped. Distinct from the static `playStart`/`playEnd` scrubbers.
+   */
+  playbackPosition?: number | null
   /** Pan the viewport by a sample delta (positive = move the view later/right). */
   onPan?: (deltaSamples: number) => void
   /** Zoom around a focus sample; `factor` < 1 zooms in, > 1 zooms out. */
@@ -36,6 +41,14 @@ const ZOOM_SENSITIVITY = 0.0015
 export const TIMELINE_HEADER_HEIGHT = 32
 
 /**
+ * Fixed height, in pixels, of the playback/timeline toolbar rendered above the
+ * timeline surface (see `TimelineToolbar`). Exported here so other editor panes
+ * (e.g. the track pane) can reserve matching space and stay vertically aligned
+ * with the timeline below the toolbar.
+ */
+export const TIMELINE_TOOLBAR_HEIGHT = 44
+
+/**
  * The horizontal editing timeline surface. Renders a `TimelineRuler` underneath
  * everything as a background grid and lays its `children` (tracks/regions) on
  * top. Pointer drags pan the view and ctrl/⌘ + wheel (or pinch) zooms; raw
@@ -52,6 +65,7 @@ function Timeline({
   sampleRate,
   playStart,
   playEnd,
+  playbackPosition,
   onPan,
   onZoom,
   children,
@@ -154,6 +168,7 @@ function Timeline({
           headerHeight={TIMELINE_HEADER_HEIGHT}
           playStart={playStart}
           playEnd={playEnd}
+          playbackPosition={playbackPosition}
         />
       </div>
       <div
