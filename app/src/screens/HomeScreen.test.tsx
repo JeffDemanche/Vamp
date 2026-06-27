@@ -11,13 +11,13 @@ const mocks = [
           {
             __typename: "User",
             _id: "1",
-            name: "Ada Lovelace",
+            username: "ada",
             email: "ada@example.com",
           },
           {
             __typename: "User",
             _id: "2",
-            name: "Grace Hopper",
+            username: "grace",
             email: "grace@example.com",
           },
         ],
@@ -45,7 +45,7 @@ describe("HomeScreen", () => {
       </MockedProvider>,
     );
 
-    expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
+    expect(await screen.findByText("ada")).toBeInTheDocument();
     expect(screen.getByText("grace@example.com")).toBeInTheDocument();
   });
 });

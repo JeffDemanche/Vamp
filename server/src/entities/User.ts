@@ -14,8 +14,8 @@ export class User {
   readonly _id!: string;
 
   @Field()
-  @prop({ required: true, trim: true })
-  name!: string;
+  @prop({ required: true, unique: true, trim: true })
+  username!: string;
 
   @Field()
   @prop({ required: true, unique: true, lowercase: true, trim: true })

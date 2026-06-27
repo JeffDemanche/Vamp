@@ -2,15 +2,11 @@ import { ApolloServer } from "@apollo/server";
 import { expressMiddleware } from "@as-integrations/express5";
 import cors from "cors";
 import express, { type Express } from "express";
+import { createServices } from "./container";
+import type { ServerContext } from "./context";
 import { createSchema } from "./schema";
 
-/**
- * Per-request GraphQL context. Extend this with auth/user/loaders as the
- * API grows; resolvers receive it via `@Ctx()`.
- */
-export interface ServerContext {
-  requestId?: string;
-}
+export type { ServerContext } from "./context";
 
 export async function createApolloServer(): Promise<ApolloServer<ServerContext>> {
   const schema = await createSchema();
@@ -38,7 +34,9 @@ export async function createApp(
     cors<cors.CorsRequest>(),
     express.json(),
     expressMiddleware(apollo, {
-      context: async (): Promise<ServerContext> => ({}),
+      context: async (): Promise<ServerContext> => ({
+        services: createServices(),
+      }),
     }),
   );
 

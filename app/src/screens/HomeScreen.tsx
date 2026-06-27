@@ -6,7 +6,7 @@ export const UsersQuery = graphql(`
   query Users {
     users {
       _id
-      name
+      username
       email
     }
   }
@@ -49,7 +49,7 @@ export function HomeScreen() {
           ) : (
             data.users.map((user) => (
               <li key={user._id} className="py-3">
-                <p className="font-semibold">{user.name}</p>
+                <p className="font-semibold">{user.username}</p>
                 <p className="text-sm text-muted-foreground">{user.email}</p>
               </li>
             ))

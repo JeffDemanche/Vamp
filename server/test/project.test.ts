@@ -1,0 +1,151 @@
+import { ProjectModel } from "../src/entities/Project";
+import { ProjectDataModel } from "../src/entities/ProjectData";
+import { UserModel } from "../src/entities/User";
+import { execute, startTestStack, stopTestStack, type TestStack } from "./testServer";
+
+const CREATE_USER = /* GraphQL */ `
+  mutation Create($input: CreateUserInput!) {
+    createUser(input: $input) {
+      _id
+    }
+  }
+`;
+
+const CREATE_PROJECT = /* GraphQL */ `
+  mutation CreateProject($input: CreateProjectInput!) {
+    createProject(input: $input) {
+      _id
+      title
+      owner {
+        _id
+        username
+      }
+      contributors {
+        _id
+        username
+      }
+      projectData {
+        _id
+      }
+    }
+  }
+`;
+
+const GET_PROJECT = /* GraphQL */ `
+  query Project($id: ID!) {
+    project(id: $id) {
+      _id
+      title
+      owner {
+        username
+      }
+      contributors {
+        username
+      }
+      projectData {
+        _id
+      }
+    }
+  }
+`;
+
+const PROJECTS_BY_USER = /* GraphQL */ `
+  query ProjectsByUser($userId: ID!) {
+    projectsByUser(userId: $userId) {
+      _id
+      title
+    }
+  }
+`;
+
+let stack: TestStack;
+
+beforeAll(async () => {
+  stack = await startTestStack();
+});
+
+afterAll(async () => {
+  await stopTestStack(stack);
+});
+
+afterEach(async () => {
+  await Promise.all([
+    ProjectModel.deleteMany({}),
+    ProjectDataModel.deleteMany({}),
+    UserModel.deleteMany({}),
+  ]);
+});
+
+async function createUser(username: string, email: string): Promise<string> {
+  const res = await execute<{ createUser: { _id: string } }>(stack.apollo, CREATE_USER, {
+    input: { username, email },
+  });
+  return res.data!.createUser._id;
+}
+
+describe("Project API (field resolution + layered services)", () => {
+  it("creates a project, auto-provisions ProjectData, and resolves relations", async () => {
+    const ownerId = await createUser("owner", "owner@example.com");
+    const contributorId = await createUser("contrib", "contrib@example.com");
+
+    const created = await execute<{
+      createProject: {
+        _id: string;
+        title: string;
+        owner: { _id: string; username: string };
+        contributors: { _id: string; username: string }[];
+        projectData: { _id: string };
+      };
+    }>(stack.apollo, CREATE_PROJECT, {
+      input: { title: "First Song", ownerId, contributorIds: [contributorId] },
+    });
+
+    expect(created.errors).toBeUndefined();
+    const project = created.data!.createProject;
+    expect(project.title).toBe("First Song");
+    expect(project.owner).toMatchObject({ _id: ownerId, username: "owner" });
+    expect(project.contributors).toEqual([{ _id: contributorId, username: "contrib" }]);
+    expect(project.projectData._id).toBeTruthy();
+
+    // ProjectData was created as a side effect of creating the project.
+    await expect(ProjectDataModel.countDocuments()).resolves.toBe(1);
+
+    const fetched = await execute<{ project: { title: string; owner: { username: string } } | null }>(
+      stack.apollo,
+      GET_PROJECT,
+      { id: project._id },
+    );
+    expect(fetched.data?.project?.title).toBe("First Song");
+    expect(fetched.data?.project?.owner.username).toBe("owner");
+  });
+
+  it("returns projects a user owns or contributes to", async () => {
+    const ownerId = await createUser("owner", "owner@example.com");
+    const contributorId = await createUser("contrib", "contrib@example.com");
+
+    await execute(stack.apollo, CREATE_PROJECT, {
+      input: { title: "Owned", ownerId, contributorIds: [] },
+    });
+    await execute(stack.apollo, CREATE_PROJECT, {
+      input: { title: "Contributing", ownerId: contributorId, contributorIds: [ownerId] },
+    });
+
+    const owned = await execute<{ projectsByUser: { title: string }[] }>(
+      stack.apollo,
+      PROJECTS_BY_USER,
+      { userId: ownerId },
+    );
+    expect(owned.errors).toBeUndefined();
+    expect(owned.data?.projectsByUser.map((p) => p.title).sort()).toEqual([
+      "Contributing",
+      "Owned",
+    ]);
+
+    const contributing = await execute<{ projectsByUser: { title: string }[] }>(
+      stack.apollo,
+      PROJECTS_BY_USER,
+      { userId: contributorId },
+    );
+    expect(contributing.data?.projectsByUser.map((p) => p.title)).toEqual(["Contributing"]);
+  });
+});

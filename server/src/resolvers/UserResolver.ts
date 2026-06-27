@@ -1,12 +1,13 @@
 import { IsEmail, MinLength } from "class-validator";
-import { Arg, Field, ID, InputType, Mutation, Query, Resolver } from "type-graphql";
-import { User, UserModel } from "../entities/User";
+import { Arg, Ctx, Field, ID, InputType, Mutation, Query, Resolver } from "type-graphql";
+import type { ServerContext } from "../context";
+import { User } from "../entities/User";
 
 @InputType()
 export class CreateUserInput {
   @Field()
   @MinLength(2)
-  name!: string;
+  username!: string;
 
   @Field()
   @IsEmail()
@@ -16,17 +17,34 @@ export class CreateUserInput {
 @Resolver(() => User)
 export class UserResolver {
   @Query(() => [User])
-  async users(): Promise<User[]> {
-    return UserModel.find().sort({ createdAt: -1 }).exec();
+  async users(@Ctx() ctx: ServerContext): Promise<User[]> {
+    return ctx.services.users.findAll();
   }
 
   @Query(() => User, { nullable: true })
-  async user(@Arg("id", () => ID) id: string): Promise<User | null> {
-    return UserModel.findById(id).exec();
+  async user(
+    @Arg("id", () => ID) id: string,
+    @Ctx() ctx: ServerContext,
+  ): Promise<User | null> {
+    return ctx.services.users.findById(id);
+  }
+
+  @Query(() => User, { nullable: true })
+  async userByEmail(
+    @Arg("email") email: string,
+    @Ctx() ctx: ServerContext,
+  ): Promise<User | null> {
+    return ctx.services.users.findByEmail(email);
   }
 
   @Mutation(() => User)
-  async createUser(@Arg("input") input: CreateUserInput): Promise<User> {
-    return UserModel.create({ name: input.name, email: input.email });
+  async createUser(
+    @Arg("input") input: CreateUserInput,
+    @Ctx() ctx: ServerContext,
+  ): Promise<User> {
+    return ctx.services.users.create({
+      username: input.username,
+      email: input.email,
+    });
   }
 }

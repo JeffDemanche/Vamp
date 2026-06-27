@@ -1,8 +1,9 @@
 import { ApolloServer } from "@apollo/server";
 import { MongoMemoryServer } from "mongodb-memory-server";
+import { createServices } from "../src/container";
+import type { ServerContext } from "../src/context";
 import { connectToDatabase, disconnectFromDatabase } from "../src/db";
 import { createSchema } from "../src/schema";
-import type { ServerContext } from "../src/server";
 
 export interface TestStack {
   mongo: MongoMemoryServer;
@@ -45,7 +46,7 @@ export async function execute<TData = Record<string, unknown>>(
 ): Promise<{ data?: TData | null; errors?: readonly { message: string }[] }> {
   const response = await apollo.executeOperation<TData>(
     { query, variables },
-    { contextValue: {} },
+    { contextValue: { services: createServices() } },
   );
 
   if (response.body.kind !== "single") {

@@ -1,0 +1,65 @@
+---
+description: Respect the server's layered architecture (resolvers → services → repositories → entities)
+globs: server/src/**/*.ts
+alwaysApply: false
+---
+
+# Server Layered Architecture
+
+The GraphQL server (`server/src/`) follows a strict layered architecture. Each
+layer may only depend on the layer directly beneath it. Keep new code in the
+right layer instead of collapsing concerns into resolvers.
+
+```
+resolvers/      API layer       — GraphQL only; thin; no business logic, no models
+   │
+services/       business logic  — orchestration, domain rules; depends on repositories
+   │
+repositories/   data access     — the ONLY layer that touches Typegoose models
+   │
+entities/       data models     — dual Typegoose model + type-graphql ObjectType
+```
+
+## Rules per layer
+
+- **Resolvers** (`server/src/resolvers/`)
+  - Define `@Query`, `@Mutation`, `@FieldResolver`, `@InputType`s.
+  - Reach business logic only via `@Ctx() ctx: ServerContext` → `ctx.services.*`.
+  - Must NOT import `*Model` from `entities/`, call Mongoose, or contain domain rules.
+  - Keep them thin: translate GraphQL args ⇄ service calls and return entities.
+
+- **Services** (`server/src/services/`)
+  - Contain business logic and cross-entity orchestration (e.g. creating a
+    `Project` also provisions its `ProjectData`).
+  - Depend on repositories (and other services) injected via the constructor.
+  - Must NOT import `*Model` directly or know about GraphQL types/decorators.
+
+- **Repositories** (`server/src/repositories/`)
+  - The ONLY place allowed to import and use the Typegoose `*Model`.
+  - Expose intention-revealing methods (`findByEmail`, `findByUser`, …); no
+    business rules.
+
+- **Entities** (`server/src/entities/`)
+  - One class = Typegoose model (`@prop`) + type-graphql `ObjectType` (`@Field`).
+  - Persist relations as `Ref<…>` (`@prop({ ref: … })`) WITHOUT `@Field`; expose
+    them through `@FieldResolver`s that load via services. This keeps the stored
+    shape (ids) decoupled from the API shape (hydrated objects).
+
+## Wiring
+
+- New services are constructed in the composition root `server/src/container.ts`
+  (`createServices`) and exposed on `ServerContext.services`
+  (`server/src/context.ts`).
+- Production wires the context in `server/src/server.ts`; tests wire it in
+  `server/test/testServer.ts`. Update both when adding a service.
+
+## When adding a new entity/feature
+
+1. Add the entity in `entities/`.
+2. Add a repository in `repositories/` for its data access.
+3. Add a service in `services/` for its business logic; register it in
+   `container.ts` and on `Services`/`ServerContext`.
+4. Add/extend a resolver in `resolvers/` that delegates to the service, and
+   register it in `schema.ts`.
+5. Regenerate the schema (`npm run schema`) and client types (`npm run codegen`),
+   and update `docs/GLOSSARY.md`.

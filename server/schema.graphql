@@ -3,9 +3,15 @@
 # !!!   DO NOT MODIFY THIS FILE BY YOURSELF   !!!
 # -----------------------------------------------
 
+input CreateProjectInput {
+  contributorIds: [ID!]! = []
+  ownerId: ID!
+  title: String!
+}
+
 input CreateUserInput {
   email: String!
-  name: String!
+  username: String!
 }
 
 """
@@ -14,11 +20,29 @@ A date-time string at UTC, such as 2007-12-03T10:15:30Z, compliant with the `dat
 scalar DateTimeISO
 
 type Mutation {
+  createProject(input: CreateProjectInput!): Project!
   createUser(input: CreateUserInput!): User!
 }
 
+type Project {
+  _id: ID!
+  contributors: [User!]!
+  createdAt: DateTimeISO!
+  owner: User!
+  projectData: ProjectData!
+  title: String!
+}
+
+type ProjectData {
+  _id: ID!
+  createdAt: DateTimeISO!
+}
+
 type Query {
+  project(id: ID!): Project
+  projectsByUser(userId: ID!): [Project!]!
   user(id: ID!): User
+  userByEmail(email: String!): User
   users: [User!]!
 }
 
@@ -26,5 +50,5 @@ type User {
   _id: ID!
   createdAt: DateTimeISO!
   email: String!
-  name: String!
+  username: String!
 }
