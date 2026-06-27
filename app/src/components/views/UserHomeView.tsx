@@ -34,9 +34,9 @@ export function UserHomeView() {
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Your projects</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Your Vamps</h1>
           <p className="mt-1 text-muted-foreground">
-            Projects you own and collaborate on will appear here.
+            Vamps you own and collaborate on will appear here.
           </p>
         </div>
         <Button variant="outline" onClick={onLogout} disabled={loading}>

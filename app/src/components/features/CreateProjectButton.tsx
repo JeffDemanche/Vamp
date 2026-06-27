@@ -34,7 +34,7 @@ export function CreateProjectButton({ ownerId }: { ownerId: string }) {
       ) : (
         <Plus aria-hidden />
       )}
-      New project
+      New Vamp
     </Button>
   );
 }

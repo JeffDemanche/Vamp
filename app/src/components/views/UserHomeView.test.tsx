@@ -50,7 +50,7 @@ describe("UserHomeView", () => {
     ]);
 
     expect(
-      await screen.findByRole("button", { name: /new project/i }),
+      await screen.findByRole("button", { name: /new vamp/i }),
     ).toBeInTheDocument();
 
     const projectLink = await screen.findByRole("link", { name: "Crimson Echo" });

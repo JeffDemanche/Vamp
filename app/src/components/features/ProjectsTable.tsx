@@ -34,11 +34,11 @@ export function ProjectsTable({ userId }: { userId: string }) {
     return (
       <div
         role="status"
-        aria-label="Loading projects"
+        aria-label="Loading Vamps"
         className="flex items-center gap-2 py-6 text-muted-foreground"
       >
         <Loader2 className="size-4 animate-spin" aria-hidden />
-        Loading projects…
+        Loading Vamps…
       </div>
     );
   }
@@ -46,7 +46,7 @@ export function ProjectsTable({ userId }: { userId: string }) {
   if (error) {
     return (
       <p data-testid="projects-error" className="py-6 text-destructive">
-        Could not load projects: {error.message}
+        Could not load Vamps: {error.message}
       </p>
     );
   }
@@ -56,7 +56,7 @@ export function ProjectsTable({ userId }: { userId: string }) {
   if (projects.length === 0) {
     return (
       <p data-testid="projects-empty" className="py-6 text-muted-foreground">
-        You don&apos;t have any projects yet. Create one to get started.
+        You don&apos;t have any Vamps yet. Create one to get started.
       </p>
     );
   }
