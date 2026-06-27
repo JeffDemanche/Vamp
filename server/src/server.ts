@@ -1,7 +1,9 @@
 import { ApolloServer } from "@apollo/server";
 import { expressMiddleware } from "@as-integrations/express5";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type Express } from "express";
+import { config } from "./config";
 import { createServices } from "./container";
 import type { ServerContext } from "./context";
 import { createSchema } from "./schema";
@@ -31,12 +33,21 @@ export async function createApp(
 
   app.use(
     "/graphql",
-    cors<cors.CorsRequest>(),
+    // Reflect the request origin and allow credentials so the session cookie
+    // is sent on cross-origin requests from the client dev server.
+    cors<cors.CorsRequest>({ origin: true, credentials: true }),
     express.json(),
+    cookieParser(),
     expressMiddleware(apollo, {
-      context: async (): Promise<ServerContext> => ({
-        services: createServices(),
-      }),
+      context: async ({ req, res }): Promise<ServerContext> => {
+        const services = createServices();
+        const token =
+          (req.cookies?.[config.auth.cookieName] as string | undefined) ?? null;
+        const currentUser = token
+          ? await services.auth.authenticateBySessionToken(token)
+          : null;
+        return { services, res, currentUser, sessionToken: token };
+      },
     }),
   );
 

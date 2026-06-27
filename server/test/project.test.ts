@@ -3,9 +3,9 @@ import { ProjectDataModel } from "../src/entities/ProjectData";
 import { UserModel } from "../src/entities/User";
 import { execute, startTestStack, stopTestStack, type TestStack } from "./testServer";
 
-const CREATE_USER = /* GraphQL */ `
-  mutation Create($input: CreateUserInput!) {
-    createUser(input: $input) {
+const REGISTER = /* GraphQL */ `
+  mutation Register($input: RegisterInput!) {
+    register(input: $input) {
       _id
     }
   }
@@ -77,10 +77,10 @@ afterEach(async () => {
 });
 
 async function createUser(username: string, email: string): Promise<string> {
-  const res = await execute<{ createUser: { _id: string } }>(stack.apollo, CREATE_USER, {
-    input: { username, email },
+  const res = await execute<{ register: { _id: string } }>(stack.apollo, REGISTER, {
+    input: { username, email, password: "a-good-password" },
   });
-  return res.data!.createUser._id;
+  return res.data!.register._id;
 }
 
 describe("Project API (field resolution + layered services)", () => {

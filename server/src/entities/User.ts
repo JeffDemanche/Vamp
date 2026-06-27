@@ -21,6 +21,14 @@ export class User {
   @prop({ required: true, unique: true, lowercase: true, trim: true })
   email!: string;
 
+  /**
+   * Scrypt hash of the user's password (see `lib/password.ts`). Persisted via
+   * `@prop` but intentionally has no `@Field` decorator, so it is never exposed
+   * through the GraphQL API.
+   */
+  @prop({ required: true })
+  passwordHash!: string;
+
   @Field()
   @prop({ default: () => new Date() })
   createdAt!: Date;

@@ -12,6 +12,7 @@ at the bottom.
 | Term | Definition |
 | --- | --- |
 | **Vamp** | The product: a collaborative music-making app. In jazz, a "vamp" is a short, repeating musical passage — the name evokes looping, improvisation, and playing together. |
+| **Authentication** | Email + password sign-in. `register` creates an account (password hashed with scrypt); `login` begins a server-side `Session` delivered as an HttpOnly cookie; `logout` ends it. See the `Session` data model and the auth GraphQL operations. |
 | **Collaborative music-making** | The core value proposition: multiple users creating music together. Surfaced as the app's tagline on the home screen. |
 | **Contributor** | A user who collaborates on a project but does not own it. Tracked in `Project.contributors`. |
 | **Owner** | The user who owns a project (`Project.owner`); a project has exactly one owner. |
@@ -51,16 +52,35 @@ fields will be added as the editor takes shape.
 | `_id` | `ID` | Server-generated unique identifier. |
 | `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
 
+### Session
+`server/src/entities/Session.ts` · no GraphQL type
+
+A server-side login session for a `User`, created on login and deleted on logout.
+Deliberately **not** exposed to GraphQL: it is authentication infrastructure. Only
+the SHA-256 hash of the session token is stored (the raw token lives only in the
+client's HttpOnly cookie), and a TTL index on `expiresAt` lets MongoDB reap expired
+sessions automatically.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `_id` | `ObjectId` | Server-generated unique identifier. |
+| `user` | `Ref<User>` | The session's owner. |
+| `tokenHash` | `String` | SHA-256 hash of the session token. Unique. |
+| `expiresAt` | `Date` | When the session expires; TTL-indexed. |
+| `createdAt` | `Date` | Set on creation; defaults to now. |
+
 ### User
 `server/src/entities/User.ts` · GraphQL type `User`
 
-A registered person who can use Vamp.
+A registered person who can use Vamp. Created via the `register` mutation, which
+hashes the password with scrypt (`server/src/lib/password.ts`).
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `_id` | `ID` | Server-generated unique identifier. |
 | `username` | `String` | Display handle. Required, unique, trimmed. |
 | `email` | `String` | Required, unique, lowercased, trimmed. |
+| `passwordHash` | `String` | Scrypt hash of the password. Stored only; **never** exposed via GraphQL (no `@Field`). |
 | `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
 
 ## GraphQL Operations
@@ -68,9 +88,12 @@ A registered person who can use Vamp.
 | Operation | Kind | Description |
 | --- | --- | --- |
 | `createProject(input: CreateProjectInput!)` | Mutation | Creates a project from `{ title, ownerId, contributorIds }` and auto-provisions its `ProjectData`. |
-| `createUser(input: CreateUserInput!)` | Mutation | Creates a user from `{ username, email }`. |
+| `login(input: LoginInput!)` | Mutation | Authenticates `{ email, password }`, begins a session (sets the HttpOnly session cookie), and returns the `User`. Returns a generic error on bad credentials. |
+| `logout` | Mutation | Ends the current session (deletes it and clears the cookie). Returns `Boolean`. |
+| `me` | Query | Returns the currently authenticated `User`, or null if not signed in. |
 | `project(id: ID!)` | Query | Returns a single project by id, or null. |
 | `projectsByUser(userId: ID!)` | Query | Returns all projects the user owns or contributes to (`[Project!]!`). |
+| `register(input: RegisterInput!)` | Mutation | Registers a new account from `{ username, email, password }` (password hashed with scrypt) and returns the `User`. |
 | `user(id: ID!)` | Query | Returns a single user by id, or null. |
 | `userByEmail(email: String!)` | Query | Returns a single user by email, or null. |
 | `users` | Query | Returns all users (`[User!]!`). |

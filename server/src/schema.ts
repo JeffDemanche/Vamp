@@ -1,5 +1,6 @@
 import type { GraphQLSchema } from "graphql";
 import { buildSchema } from "type-graphql";
+import { AuthResolver } from "./resolvers/AuthResolver";
 import { ProjectResolver } from "./resolvers/ProjectResolver";
 import { UserResolver } from "./resolvers/UserResolver";
 
@@ -12,7 +13,7 @@ export async function createSchema(
   options: CreateSchemaOptions = {},
 ): Promise<GraphQLSchema> {
   return buildSchema({
-    resolvers: [UserResolver, ProjectResolver],
+    resolvers: [AuthResolver, UserResolver, ProjectResolver],
     emitSchemaFile: options.emitSchemaFile ?? false,
     validate: true,
   });

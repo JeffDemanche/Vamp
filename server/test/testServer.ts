@@ -43,10 +43,17 @@ export async function execute<TData = Record<string, unknown>>(
   apollo: ApolloServer<ServerContext>,
   query: string,
   variables?: Record<string, unknown>,
+  contextOverride?: Partial<ServerContext>,
 ): Promise<{ data?: TData | null; errors?: readonly { message: string }[] }> {
   const response = await apollo.executeOperation<TData>(
     { query, variables },
-    { contextValue: { services: createServices() } },
+    {
+      contextValue: {
+        services: createServices(),
+        currentUser: null,
+        ...contextOverride,
+      },
+    },
   );
 
   if (response.body.kind !== "single") {

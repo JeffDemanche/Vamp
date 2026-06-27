@@ -1,18 +1,6 @@
-import { IsEmail, MinLength } from "class-validator";
-import { Arg, Ctx, Field, ID, InputType, Mutation, Query, Resolver } from "type-graphql";
+import { Arg, Ctx, ID, Query, Resolver } from "type-graphql";
 import type { ServerContext } from "../context";
 import { User } from "../entities/User";
-
-@InputType()
-export class CreateUserInput {
-  @Field()
-  @MinLength(2)
-  username!: string;
-
-  @Field()
-  @IsEmail()
-  email!: string;
-}
 
 @Resolver(() => User)
 export class UserResolver {
@@ -35,16 +23,5 @@ export class UserResolver {
     @Ctx() ctx: ServerContext,
   ): Promise<User | null> {
     return ctx.services.users.findByEmail(email);
-  }
-
-  @Mutation(() => User)
-  async createUser(
-    @Arg("input") input: CreateUserInput,
-    @Ctx() ctx: ServerContext,
-  ): Promise<User> {
-    return ctx.services.users.create({
-      username: input.username,
-      email: input.email,
-    });
   }
 }

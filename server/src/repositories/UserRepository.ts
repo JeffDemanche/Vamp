@@ -3,6 +3,7 @@ import { User, UserModel } from "../entities/User";
 export interface CreateUserData {
   username: string;
   email: string;
+  passwordHash: string;
 }
 
 /**
@@ -21,6 +22,10 @@ export class UserRepository {
 
   findByEmail(email: string): Promise<User | null> {
     return UserModel.findOne({ email }).lean<User>().exec();
+  }
+
+  findByUsername(username: string): Promise<User | null> {
+    return UserModel.findOne({ username }).lean<User>().exec();
   }
 
   findByIds(ids: readonly string[]): Promise<User[]> {
