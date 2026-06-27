@@ -12,9 +12,11 @@ at the bottom.
 | Term | Definition |
 | --- | --- |
 | **Vamp** | The product: a collaborative music-making app. In jazz, a "vamp" is a short, repeating musical passage — the name evokes looping, improvisation, and playing together. |
+| **Archived project** | A project flagged inactive via `Project.archived`. Set/unset with the `setProjectArchived` mutation; archived projects are hidden from the active project list but not deleted. |
 | **Authentication** | Email + password sign-in. `register` creates an account (password hashed with scrypt); `login` begins a server-side `Session` delivered as an HttpOnly cookie; `logout` ends it. See the `Session` data model and the auth GraphQL operations. |
 | **Collaborative music-making** | The core value proposition: multiple users creating music together. Surfaced as the app's tagline on the home screen. |
 | **Contributor** | A user who collaborates on a project but does not own it. Tracked in `Project.contributors`. |
+| **Poetic project name** | The short, evocative two-word title (e.g. "Crimson Echo") auto-generated for a new empty project using the RiTa NLP library (`server/src/lib/projectName.ts`). |
 | **Owner** | The user who owns a project (`Project.owner`); a project has exactly one owner. |
 | **Project** | A unit of collaborative work: a titled container with an owner, contributors, and backing `ProjectData`. See the Data Models section. |
 
@@ -38,6 +40,7 @@ relational fields are persisted as references and exposed via field resolvers
 | `owner` | `User` | The owning user. Stored as a ref; resolved by a field resolver. |
 | `contributors` | `[User!]!` | Users collaborating on the project. Stored as refs; resolved by a field resolver. |
 | `projectData` | `ProjectData` | The project's editable content. Stored as a ref; resolved by a field resolver. |
+| `archived` | `Boolean` | Whether the project is archived (hidden from active lists). Defaults to `false`. |
 | `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
 
 ### ProjectData
@@ -87,13 +90,16 @@ hashes the password with scrypt (`server/src/lib/password.ts`).
 
 | Operation | Kind | Description |
 | --- | --- | --- |
+| `createEmptyProject(ownerId: ID!)` | Mutation | Creates a new empty project for the owner with an auto-generated poetic title (via RiTa) and auto-provisioned `ProjectData`. |
 | `createProject(input: CreateProjectInput!)` | Mutation | Creates a project from `{ title, ownerId, contributorIds }` and auto-provisions its `ProjectData`. |
 | `login(input: LoginInput!)` | Mutation | Authenticates `{ email, password }`, begins a session (sets the HttpOnly session cookie), and returns the `User`. Returns a generic error on bad credentials. |
 | `logout` | Mutation | Ends the current session (deletes it and clears the cookie). Returns `Boolean`. |
 | `me` | Query | Returns the currently authenticated `User`, or null if not signed in. |
 | `project(id: ID!)` | Query | Returns a single project by id, or null. |
-| `projectsByUser(userId: ID!)` | Query | Returns all projects the user owns or contributes to (`[Project!]!`). |
+| `projectsByUser(userId: ID!, includeArchived: Boolean = false)` | Query | Returns projects the user owns or contributes to (`[Project!]!`), newest first. Archived projects are excluded unless `includeArchived` is `true`. |
 | `register(input: RegisterInput!)` | Mutation | Registers a new account from `{ username, email, password }` (password hashed with scrypt) and returns the `User`. |
+| `setProjectArchived(id: ID!, archived: Boolean!)` | Mutation | Archives or unarchives a project, returning the updated `Project`. |
+| `updateProjectMetadata(input: UpdateProjectMetadataInput!)` | Mutation | Updates metadata stored directly on a `Project` (currently `title`); `ProjectData` content has separate flows. |
 | `user(id: ID!)` | Query | Returns a single user by id, or null. |
 | `userByEmail(email: String!)` | Query | Returns a single user by email, or null. |
 | `users` | Query | Returns all users (`[User!]!`). |
@@ -102,12 +108,14 @@ hashes the password with scrypt (`server/src/lib/password.ts`).
 
 | Term | Definition |
 | --- | --- |
+| **CreateProjectButton** | A feature button in the `UserHomeView` toolbar that creates a new empty project (auto-named via `createEmptyProject`), refreshes the project list, and navigates into the new project (`app/src/components/features/CreateProjectButton.tsx`). |
 | **LandingView** | The landing view at `/`, showing the Vamp title, tagline, login/sign-up links, and the list of users (`app/src/components/views/LandingView.tsx`). |
 | **LoginView** | The login view at `/login`; an email + password form that begins a session and redirects to `/home` on success (`app/src/components/views/LoginView.tsx`). |
 | **ProjectView** | The view for a single project at `/projects/:projectId`, where the project editor will live (`app/src/components/views/ProjectView.tsx`). Guarded by `RequireAuth`. |
+| **ProjectsTable** | A feature that lists a user's non-archived projects in a table, each row linking into the project; used by `UserHomeView` (`app/src/components/features/ProjectsTable.tsx`). |
 | **RegisterView** | The registration view at `/register`; a username/email/password form that creates an account, then sends the user to `LoginView` (`app/src/components/views/RegisterView.tsx`). |
 | **RequireAuth** | Client route guard that renders its children only for a signed-in user (via the `me` query) and otherwise redirects to `LoginView` (`app/src/auth/RequireAuth.tsx`). Wraps `UserHomeView` and `ProjectView`. |
-| **UserHomeView** | The signed-in user's home view at `/home`, listing the projects they own and collaborate on, with a log-out action (`app/src/components/views/UserHomeView.tsx`). Guarded by `RequireAuth`. |
+| **UserHomeView** | The signed-in user's home view at `/home`. Below the header it shows a projects toolbar (currently a `CreateProjectButton`) above a `ProjectsTable` of the projects the user owns and collaborates on, plus a log-out action (`app/src/components/views/UserHomeView.tsx`). Guarded by `RequireAuth`. |
 | **View** | A top-level, route-level screen component on the client. The top tier of the [UI component architecture](../.cursor/rules/ui-architecture.mdc); views live in `app/src/components/views/` and are suffixed `View`. |
 
 ## Infrastructure & Local Development

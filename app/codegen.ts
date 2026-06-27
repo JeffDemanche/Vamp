@@ -18,6 +18,10 @@ const config: CodegenConfig = {
       presetConfig: {
         fragmentMasking: false,
       },
+      config: {
+        // The server serializes DateTimeISO as an ISO-8601 string.
+        scalars: { DateTimeISO: "string" },
+      },
     },
   },
 };

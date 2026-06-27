@@ -24,6 +24,7 @@
     "graphql-scalars": "^1.25.0",
     "mongoose": "~9.6.0",
     "reflect-metadata": "^0.2.2",
+    "rita": "^3.2.16",
     "type-graphql": "2.0.0-rc.3"
   },
   "devDependencies": {

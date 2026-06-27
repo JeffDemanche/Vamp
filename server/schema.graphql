@@ -20,14 +20,18 @@ input LoginInput {
 }
 
 type Mutation {
+  createEmptyProject(ownerId: ID!): Project!
   createProject(input: CreateProjectInput!): Project!
   login(input: LoginInput!): User!
   logout: Boolean!
   register(input: RegisterInput!): User!
+  setProjectArchived(archived: Boolean!, id: ID!): Project!
+  updateProjectMetadata(input: UpdateProjectMetadataInput!): Project!
 }
 
 type Project {
   _id: ID!
+  archived: Boolean!
   contributors: [User!]!
   createdAt: DateTimeISO!
   owner: User!
@@ -43,7 +47,7 @@ type ProjectData {
 type Query {
   me: User
   project(id: ID!): Project
-  projectsByUser(userId: ID!): [Project!]!
+  projectsByUser(includeArchived: Boolean! = false, userId: ID!): [Project!]!
   user(id: ID!): User
   userByEmail(email: String!): User
   users: [User!]!
@@ -53,6 +57,11 @@ input RegisterInput {
   email: String!
   password: String!
   username: String!
+}
+
+input UpdateProjectMetadataInput {
+  id: ID!
+  title: String
 }
 
 type User {

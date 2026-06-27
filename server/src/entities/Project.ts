@@ -32,6 +32,10 @@ export class Project {
   projectData!: Ref<ProjectData>;
 
   @Field()
+  @prop({ default: false })
+  archived!: boolean;
+
+  @Field()
   @prop({ default: () => new Date() })
   createdAt!: Date;
 }

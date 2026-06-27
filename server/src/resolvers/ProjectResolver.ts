@@ -40,6 +40,15 @@ export class CreateProjectInput {
   contributorIds!: string[];
 }
 
+@InputType()
+export class UpdateProjectMetadataInput {
+  @Field(() => ID)
+  id!: string;
+
+  @Field({ nullable: true })
+  title?: string;
+}
+
 @Resolver(() => Project)
 export class ProjectResolver {
   @Query(() => Project, { nullable: true })
@@ -53,9 +62,11 @@ export class ProjectResolver {
   @Query(() => [Project])
   async projectsByUser(
     @Arg("userId", () => ID) userId: string,
+    @Arg("includeArchived", () => Boolean, { defaultValue: false })
+    includeArchived: boolean,
     @Ctx() ctx: ServerContext,
   ): Promise<Project[]> {
-    return ctx.services.projects.findByUser(userId);
+    return ctx.services.projects.findByUser(userId, includeArchived);
   }
 
   @Mutation(() => Project)
@@ -67,6 +78,36 @@ export class ProjectResolver {
       title: input.title,
       ownerId: input.ownerId,
       contributorIds: input.contributorIds,
+    });
+  }
+
+  /** Create a new empty project with an auto-generated poetic title. */
+  @Mutation(() => Project)
+  async createEmptyProject(
+    @Arg("ownerId", () => ID) ownerId: string,
+    @Ctx() ctx: ServerContext,
+  ): Promise<Project> {
+    return ctx.services.projects.createEmpty(ownerId);
+  }
+
+  /** Archive or unarchive a project. */
+  @Mutation(() => Project)
+  async setProjectArchived(
+    @Arg("id", () => ID) id: string,
+    @Arg("archived") archived: boolean,
+    @Ctx() ctx: ServerContext,
+  ): Promise<Project> {
+    return ctx.services.projects.setArchived(id, archived);
+  }
+
+  /** Update metadata stored directly on the project (e.g. its title). */
+  @Mutation(() => Project)
+  async updateProjectMetadata(
+    @Arg("input") input: UpdateProjectMetadataInput,
+    @Ctx() ctx: ServerContext,
+  ): Promise<Project> {
+    return ctx.services.projects.updateMetadata(input.id, {
+      title: input.title,
     });
   }
 
