@@ -2,7 +2,7 @@ import { useQuery } from "@apollo/client/react";
 import { Loader2 } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { ProjectTitleField } from "@/components/features/ProjectTitleField";
-import { Timeline } from "@/components/composites/timeline";
+import { TimelineEditor } from "@/components/features/TimelineEditor";
 import { ProjectQuery } from "@/projects/queries";
 
 export function ProjectView() {
@@ -60,7 +60,7 @@ export function ProjectView() {
       </header>
 
       <div className="mt-6 min-h-0 flex-1">
-        <Timeline />
+        <TimelineEditor />
       </div>
     </div>
   );
