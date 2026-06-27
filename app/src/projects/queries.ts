@@ -92,3 +92,45 @@ export const UpdateProjectUserStateMutation = graphql(`
     }
   }
 `);
+
+/**
+ * Step 1 of adding a clip: register the audio asset and get back a presigned S3
+ * URL to upload the raw bytes to. The returned `ProjectAudio` is `PENDING` until
+ * `createClip` confirms the upload. Used by `uploadAudioAndCreateClip`.
+ */
+export const CreateAudioUploadMutation = graphql(`
+  mutation CreateAudioUpload($input: CreateAudioUploadInput!) {
+    createAudioUpload(input: $input) {
+      uploadUrl
+      audio {
+        _id
+        bucket
+        key
+        contentType
+        uploadStatus
+      }
+    }
+  }
+`);
+
+/**
+ * Step 3 of adding a clip: link the (now-uploaded) audio to a position on the
+ * project timeline. The server confirms the upload landed in S3 and flips the
+ * audio to `READY` as part of this call. Used by `uploadAudioAndCreateClip`.
+ */
+export const CreateClipMutation = graphql(`
+  mutation CreateClip($input: CreateClipInput!) {
+    createClip(input: $input) {
+      _id
+      start
+      duration
+      audioOffset
+      track
+      audio {
+        _id
+        uploadStatus
+        downloadUrl
+      }
+    }
+  }
+`);

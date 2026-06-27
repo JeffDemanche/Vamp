@@ -41,3 +41,6 @@ coverage/
 # Caches
 .cache/
 .vite/
+
+# Local audio uploads (local AudioStorage driver)
+.audio-uploads/

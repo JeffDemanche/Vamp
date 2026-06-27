@@ -1,18 +1,3 @@
-export interface S3Config {
-  region: string;
-  bucket: string;
-  /**
-   * Custom endpoint for an S3-compatible service. Set in local development to
-   * point at LocalStack (e.g. `http://localstack:4566`); unset in production to
-   * use real AWS S3.
-   */
-  endpoint?: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  /** LocalStack requires path-style addressing; enabled when an endpoint is set. */
-  forcePathStyle: boolean;
-}
-
 export interface AuthConfig {
   /** Name of the HttpOnly session cookie. */
   cookieName: string;
@@ -22,19 +7,43 @@ export interface AuthConfig {
   sessionTtlMs: number;
 }
 
+/** Which backend stores the raw audio bytes. */
+export type AudioStorageDriver = "vercel" | "local";
+
+export interface AudioStorageConfig {
+  /**
+   * Backend for audio bytes. `vercel` uses Vercel Blob (production); `local`
+   * bypasses Vercel and writes files to disk for development. Defaults to
+   * `local` unless `AUDIO_STORAGE_DRIVER=vercel`.
+   */
+  driver: AudioStorageDriver;
+  /**
+   * Base URL of this server, used to build the upload endpoint (and, for the
+   * local driver, download) URLs handed to the client.
+   */
+  publicBaseUrl: string;
+  /** Directory the `local` driver writes audio files to. */
+  localDir: string;
+  /**
+   * Read-write token for the `vercel` driver (`BLOB_READ_WRITE_TOKEN`). The
+   * `@vercel/blob` SDK also reads this from the environment automatically.
+   */
+  blobToken?: string;
+}
+
 export interface AppConfig {
   port: number;
   mongoUri: string;
   nodeEnv: string;
   auth: AuthConfig;
-  s3: S3Config;
+  audio: AudioStorageConfig;
 }
 
-const s3Endpoint = process.env.AWS_ENDPOINT_URL;
 const nodeEnv = process.env.NODE_ENV ?? "development";
+const port = Number(process.env.PORT ?? 4000);
 
 export const config: AppConfig = {
-  port: Number(process.env.PORT ?? 4000),
+  port,
   mongoUri: process.env.MONGO_URI ?? "mongodb://127.0.0.1:27017/vamp",
   nodeEnv,
   auth: {
@@ -43,12 +52,11 @@ export const config: AppConfig = {
     sessionTtlMs:
       Number(process.env.SESSION_TTL_DAYS ?? 30) * 24 * 60 * 60 * 1000,
   },
-  s3: {
-    region: process.env.AWS_REGION ?? "us-east-1",
-    bucket: process.env.S3_BUCKET ?? "vamp-uploads",
-    endpoint: s3Endpoint,
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    forcePathStyle: Boolean(s3Endpoint),
+  audio: {
+    driver: process.env.AUDIO_STORAGE_DRIVER === "vercel" ? "vercel" : "local",
+    publicBaseUrl:
+      process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") ?? `http://localhost:${port}`,
+    localDir: process.env.AUDIO_LOCAL_DIR ?? ".audio-uploads",
+    blobToken: process.env.BLOB_READ_WRITE_TOKEN,
   },
 };

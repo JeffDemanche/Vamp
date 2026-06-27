@@ -20,6 +20,7 @@ at the bottom.
 | **Sample (timeline unit)** | The unit for project-timeline timestamps and durations. Unless explicitly stated otherwise, every timeline position/length (e.g. `ProjectClip.start`, `ProjectClip.duration`) is an integer count of audio samples, **not** seconds. See `AGENTS.md`. |
 | **Timeline viewport** | The slice of the project timeline currently visible in the editor, expressed in samples as `{ start, end }` — the sample coordinates at the timeline's left- and right-hand cutoffs (either may be negative). Client editor state held in jotai (`app/src/state/timeline.ts`), modified by pan/zoom gestures, and persisted per user on `ProjectUser` (`viewportStart`/`viewportEnd`) via `ProjectUserSync`. |
 | **Owner** | The user who owns a project; a project has exactly one owner. Stored as `Project.owner`, a reference to the owner's `ProjectUser` membership (not the bare user). |
+| **Audio upload flow** | How a clip's audio gets into storage without passing the bytes through the GraphQL API. `createAudioUpload` registers a `PENDING` `ProjectAudio` and returns an upload URL pointing at the server's `PUT /audio/upload/:audioId` route; the client `PUT`s the bytes there and the server forwards them to the configured **Audio storage** backend; then `createClip` confirms the object landed (`head`), flips the audio to `READY`, and links it to the timeline. The client helper `uploadAudioAndCreateClip` runs the whole flow (`app/src/projects/audioUpload.ts`). (Uploads are server-proxied for a uniform local/Vercel path; note Vercel Functions cap bodies at ~4.5 MB — larger files will need Vercel client uploads/multipart.) |
 | **Playback range** | The sample window playback uses in the editor: `playStart` (where playback begins), `playEnd` (where it loops back to `playStart`), and a `loop` flag. `playEnd` is always a concrete sample position (kept `>= playStart`) but **only matters when `loop` is on**; with looping off, `playEnd` is ignored and playback runs indefinitely. Client-only editor state held in jotai (`app/src/state/timeline.ts`), visualized by the `TimelinePlayhead` scrubbers (the `playEnd` scrubber shows only while looping), reflected into the `AudioEngine`, and toggled (`loop`) via the `TimelineToolbar`. Persisted per user on `ProjectUser` (`playStart`/`playEnd`/`loop`) via `ProjectUserSync` as it changes; hydrating it back on load is not wired up yet. |
 | **Project** | A unit of collaborative work: a titled container with an owner, contributors, and backing `ProjectData`. See the Data Models section. **"Project" is primarily a backend/code term** (entities, GraphQL operations, component names); in the app's user-facing copy a project is called a **Vamp** (plural **Vamps**). |
 | **Vamp (project)** | The user-facing name for a `Project`. Front-end copy refers to projects as "Vamps" (e.g. "Your Vamps", "New Vamp"); the backend, GraphQL schema, and code identifiers keep the `Project` name. Distinct from **Vamp** the product, though intentionally evocative of it. |
@@ -47,19 +48,49 @@ relational fields are persisted as references and exposed via field resolvers
 | `archived` | `Boolean` | Whether the project is archived (hidden from active lists). Defaults to `false`. |
 | `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
 
+### ProjectAudio
+`server/src/entities/ProjectAudio.ts` · GraphQL type `ProjectAudio`
+
+A handle to a single audio asset belonging to a `Project`, stored as an object
+in the **Audio storage** backend (the `bucket`/`key` locate the raw bytes; the
+bytes never pass through GraphQL). Lives in its **own collection** (not embedded)
+so the same upload can back multiple clips. Created via the **Audio upload flow**
+and tracked through `uploadStatus`: `PENDING` until the upload is confirmed, then
+`READY`. A `ProjectClip` references one `ProjectAudio`. The `project`/`creator`
+relations are persisted as refs with **no** `@Field` (lookup keys).
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `_id` | `ID` | Server-generated unique identifier (also embedded in the object key). |
+| `project` | `Ref<Project>` | The owning project. Stored only; not exposed via GraphQL. |
+| `bucket` | `String` | The logical container the object lives in (`local` or `vercel-blob`). |
+| `key` | `String` | The object key/pathname locating the raw bytes (`projects/<id>/audio/<id>`). |
+| `contentType` | `String` | MIME type declared at upload (e.g. `audio/wav`); reconciled with the store on confirm. |
+| `byteSize` | `Int` | Stored object size in bytes, captured on confirm. `null` while `PENDING`. |
+| `filename` | `String` | Original client-side filename, for display. Optional. |
+| `uploadStatus` | `AudioUploadStatus` | `PENDING` or `READY` (see **Audio upload flow**). Defaults to `PENDING`. |
+| `downloadUrl` | `String` | Field-resolver-only: a URL to fetch the bytes (the local server route or the Vercel Blob URL), or `null` while `PENDING`. Not stored. |
+| `creator` | `Ref<User>` | The user who uploaded the audio. Stored only; not exposed via GraphQL. |
+| `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
+
+`AudioUploadStatus` is the GraphQL enum (`PENDING` | `READY`) tracking that lifecycle.
+
 ### ProjectClip
 `server/src/entities/ProjectClip.ts` · GraphQL type `ProjectClip`
 
-A clip placed on a `ProjectTrack` within a `ProjectData` timeline. An **embedded
-subdocument** stored in `ProjectData.clips`. `start`/`duration` are integers
-measured in **samples** (see the timeline-timestamp convention in `AGENTS.md`).
+A clip placed on a `ProjectTrack` within a `ProjectData` timeline, playing a
+window of a `ProjectAudio`. An **embedded subdocument** stored in
+`ProjectData.clips`. `start`/`duration`/`audioOffset` are integers measured in
+**samples** (see the timeline-timestamp convention in `AGENTS.md`).
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `_id` | `ID` | Server-generated unique identifier. |
-| `start` | `Int` | Clip start position, in samples. |
+| `start` | `Int` | Clip start position on the timeline, in samples. |
 | `duration` | `Int` | Clip length, in samples. |
+| `audioOffset` | `Int` | How many samples into the underlying `ProjectAudio` the clip begins playing from. Defaults to `0`. |
 | `track` | `ID` | The `_id` of the `ProjectTrack` (embedded on the same `ProjectData`) this clip is on. |
+| `audio` | `ProjectAudio` | The audio the clip plays. Stored as a ref; hydrated by a field resolver. |
 | `creator` | `User` | The user who created the clip. Stored as a ref; **not** exposed via `@Field` yet (will be hydrated by a field resolver). |
 | `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
 
@@ -158,12 +189,15 @@ hashes the password with scrypt (`server/src/lib/password.ts`).
 
 | Operation | Kind | Description |
 | --- | --- | --- |
+| `createAudioUpload(input: CreateAudioUploadInput!)` | Mutation | Begins the **Audio upload flow**: registers a `PENDING` `ProjectAudio` for `{ projectId, contentType, filename? }` and returns `{ audio, uploadUrl }` — the server `PUT` endpoint the client uploads the bytes to. Creator is the signed-in user. |
+| `createClip(input: CreateClipInput!)` | Mutation | Places a `ProjectClip` on a project's timeline from `{ projectId, trackId, audioId, start, duration, audioOffset? }`. Confirms the referenced `ProjectAudio` finished uploading (flipping it to `READY`) and belongs to the project, then appends the embedded clip. Creator is the signed-in user. |
 | `createEmptyProject(ownerId: ID!)` | Mutation | Creates a new empty project for the owner with an auto-generated poetic title (via RiTa) and auto-provisioned `ProjectData` seeded with a single starter `ProjectTrack` owned by the creator. |
 | `createProject(input: CreateProjectInput!)` | Mutation | Creates a project from `{ title, ownerId, contributorIds }` and auto-provisions its `ProjectData` (seeded with a single starter `ProjectTrack` owned by the creator). |
 | `login(input: LoginInput!)` | Mutation | Authenticates `{ email, password }`, begins a session (sets the HttpOnly session cookie), and returns the `User`. Returns a generic error on bad credentials. |
 | `logout` | Mutation | Ends the current session (deletes it and clears the cookie). Returns `Boolean`. |
 | `me` | Query | Returns the currently authenticated `User`, or null if not signed in. |
 | `project(id: ID!)` | Query | Returns a single project by id, or null. |
+| `projectAudio(id: ID!)` | Query | Returns a single `ProjectAudio` by id, or null (including its `downloadUrl` when `READY`). |
 | `projectUser(projectId: ID!)` | Query | Returns the signed-in user's per-project view state (`ProjectUser`) for a project, or null if none has been saved yet. Identity comes from the authenticated user, not an argument. |
 | `projectsByUser(userId: ID!, includeArchived: Boolean = false)` | Query | Returns projects the user owns or contributes to (`[Project!]!`), newest first. Archived projects are excluded unless `includeArchived` is `true`. |
 | `register(input: RegisterInput!)` | Mutation | Registers a new account from `{ username, email, password }` (password hashed with scrypt) and returns the `User`. |
@@ -204,9 +238,8 @@ hashes the password with scrypt (`server/src/lib/password.ts`).
 
 | Term | Definition |
 | --- | --- |
-| **Docker dev environment** | The full local stack (MongoDB, LocalStack, API, Vite) started with `docker compose watch`. Defined in `docker-compose.yml` + `Dockerfile`; keeps containers in sync with the working tree for live reload. |
-| **LocalStack** | A local AWS emulator run as a container in development. Vamp uses its S3 service so uploads can be exercised without real AWS. Reachable at `http://localstack:4566` inside the network (`http://localhost:4566` from the host). |
-| **S3 uploads** | File uploads stored in an S3 bucket (`vamp-uploads`). In local dev the bucket lives in LocalStack; the server reads its S3 settings from `AWS_*` / `S3_BUCKET` env vars (`server/src/config.ts`, `S3Config`). |
+| **Audio storage** | The pluggable backend holding raw clip audio, abstracted behind the `AudioStorage` interface (`server/src/lib/audioStorage.ts`) and tracked as `ProjectAudio` records via the **Audio upload flow**. Two drivers, selected by `AUDIO_STORAGE_DRIVER`: `local` (`LocalAudioStorage`, default — writes files under `AUDIO_LOCAL_DIR` and serves them from the server's `GET /audio/blob/...` route, for development) and `vercel` (`VercelBlobAudioStorage` — Vercel Blob via `@vercel/blob`, needs `BLOB_READ_WRITE_TOKEN`). Tests inject an in-memory fake. The binary transfer routes live in `server/src/routes/audioRoutes.ts`. |
+| **Docker dev environment** | The full local stack (MongoDB, API, Vite) started with `docker compose watch`. Defined in `docker-compose.yml` + `Dockerfile`; keeps containers in sync with the working tree for live reload. |
 
 ---
 

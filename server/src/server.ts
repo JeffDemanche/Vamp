@@ -6,6 +6,7 @@ import express, { type Express } from "express";
 import { config } from "./config";
 import { createServices } from "./container";
 import type { ServerContext } from "./context";
+import { mountAudioRoutes } from "./routes/audioRoutes";
 import { createSchema } from "./schema";
 
 export type { ServerContext } from "./context";
@@ -30,6 +31,9 @@ export async function createApp(
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
   });
+
+  // Binary audio transfer endpoints (upload/download), kept outside GraphQL.
+  mountAudioRoutes(app);
 
   app.use(
     "/graphql",

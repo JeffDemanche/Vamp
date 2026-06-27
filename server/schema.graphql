@@ -3,6 +3,32 @@
 # !!!   DO NOT MODIFY THIS FILE BY YOURSELF   !!!
 # -----------------------------------------------
 
+"""Upload lifecycle of a ProjectAudio's underlying S3 object."""
+enum AudioUploadStatus {
+  PENDING
+  READY
+}
+
+input CreateAudioUploadInput {
+  contentType: String!
+  filename: String
+  projectId: ID!
+}
+
+type CreateAudioUploadPayload {
+  audio: ProjectAudio!
+  uploadUrl: String!
+}
+
+input CreateClipInput {
+  audioId: ID!
+  audioOffset: Int! = 0
+  duration: Int!
+  projectId: ID!
+  start: Int!
+  trackId: ID!
+}
+
 input CreateProjectInput {
   contributorIds: [ID!]! = []
   ownerId: ID!
@@ -20,6 +46,8 @@ input LoginInput {
 }
 
 type Mutation {
+  createAudioUpload(input: CreateAudioUploadInput!): CreateAudioUploadPayload!
+  createClip(input: CreateClipInput!): ProjectClip!
   createEmptyProject(ownerId: ID!): Project!
   createProject(input: CreateProjectInput!): Project!
   login(input: LoginInput!): User!
@@ -40,8 +68,22 @@ type Project {
   title: String!
 }
 
+type ProjectAudio {
+  _id: ID!
+  bucket: String!
+  byteSize: Int
+  contentType: String!
+  createdAt: DateTimeISO!
+  downloadUrl: String
+  filename: String
+  key: String!
+  uploadStatus: AudioUploadStatus!
+}
+
 type ProjectClip {
   _id: ID!
+  audio: ProjectAudio!
+  audioOffset: Int!
   createdAt: DateTimeISO!
   duration: Int!
   start: Int!
@@ -75,6 +117,7 @@ type ProjectUser {
 type Query {
   me: User
   project(id: ID!): Project
+  projectAudio(id: ID!): ProjectAudio
   projectUser(projectId: ID!): ProjectUser
   projectsByUser(includeArchived: Boolean! = false, userId: ID!): [Project!]!
   user(id: ID!): User

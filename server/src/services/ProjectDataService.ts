@@ -1,5 +1,9 @@
+import type { ProjectClip } from "../entities/ProjectClip";
 import type { ProjectData } from "../entities/ProjectData";
-import type { ProjectDataRepository } from "../repositories/ProjectDataRepository";
+import type {
+  AddClipData,
+  ProjectDataRepository,
+} from "../repositories/ProjectDataRepository";
 
 /**
  * Business logic for {@link ProjectData}. Depends on the repository layer,
@@ -10,6 +14,11 @@ export class ProjectDataService {
 
   findById(id: string): Promise<ProjectData | null> {
     return this.projectData.findById(id);
+  }
+
+  /** Append a clip to a project's timeline, returning the created clip. */
+  addClip(projectDataId: string, data: AddClipData): Promise<ProjectClip> {
+    return this.projectData.addClip(projectDataId, data);
   }
 
   /**
