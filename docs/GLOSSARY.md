@@ -167,6 +167,8 @@ hashes the password with scrypt (`server/src/lib/password.ts`).
 
 | Term | Definition |
 | --- | --- |
+| **AudioEngine** | The client-side playback engine: the interface between the editor UI, the Web Audio API, the decoded audio files it holds in memory, and the **audio events** derived from a project's clips. `update` reflects the editor state it depends on (clips plus the timeline's sample rate and **Playback range**) and re-derives its events; `play`/`stop` begin/end playback by scheduling each event as a Web Audio source against the audio clock; it tracks the playing state and the audio-clock/sample anchors so its `timecode` getter reports the current timeline position (in samples) accurately for the UI to poll (`app/src/audio/AudioEngine.ts`). |
+| **Audio event** | A scheduled-able unit of playback the `AudioEngine` derives from a clip (`AudioEvent`): an in-memory audio file plus the timeline sample window (`startSample`/`endSample`, in **samples**) during which it sounds and the buffer offset to start from. What the engine actually hands to the Web Audio API when playback begins (`app/src/audio/AudioEngine.ts`). |
 | **CreateProjectButton** | A feature button in the `UserHomeView` toolbar that creates a new empty project (auto-named via `createEmptyProject`), refreshes the project list, and navigates into the new project (`app/src/components/features/CreateProjectButton.tsx`). |
 | **LandingView** | The landing view at `/`, showing the Vamp title, tagline, login/sign-up links, and the list of users (`app/src/components/views/LandingView.tsx`). |
 | **LoginView** | The login view at `/login`; an email + password form that begins a session and redirects to `/home` on success (`app/src/components/views/LoginView.tsx`). |
