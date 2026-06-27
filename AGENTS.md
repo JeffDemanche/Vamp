@@ -28,8 +28,12 @@ Vamp is a collaborative music-making app. This is an npm-workspaces monorepo:
    data fetching, mutations, routing, or business state) — that logic lives in features
    and views, which pass data and handlers down.
 4. **Verify your work.** Run typecheck/build/tests for the workspace you changed
-   before considering a task done (e.g. `npm run typecheck -w @vamp/app`,
-   `npm test -w @vamp/app`).
+ before considering a task done (e.g. `npm run typecheck -w @vamp/app`,
+ `npm test -w @vamp/app`).
+5. **Timeline timestamps are in samples.** Unless explicitly stated otherwise,
+ every project-timeline timestamp/duration (e.g. `ProjectClip.start`,
+ `ProjectClip.duration`) is measured in **samples**, not seconds. Treat these
+ values as integer sample counts throughout the stack.
 
 ## Glossary discipline
 

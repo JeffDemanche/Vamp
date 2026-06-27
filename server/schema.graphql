@@ -39,9 +39,25 @@ type Project {
   title: String!
 }
 
-type ProjectData {
+type ProjectClip {
   _id: ID!
   createdAt: DateTimeISO!
+  duration: Int!
+  start: Int!
+  track: ID!
+}
+
+type ProjectData {
+  _id: ID!
+  clips: [ProjectClip!]!
+  createdAt: DateTimeISO!
+  tracks: [ProjectTrack!]!
+}
+
+type ProjectTrack {
+  _id: ID!
+  createdAt: DateTimeISO!
+  name: String!
 }
 
 type Query {

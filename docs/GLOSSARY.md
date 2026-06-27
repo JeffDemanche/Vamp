@@ -17,6 +17,7 @@ at the bottom.
 | **Collaborative music-making** | The core value proposition: multiple users creating music together. Surfaced as the app's tagline on the home screen. |
 | **Contributor** | A user who collaborates on a project but does not own it. Tracked in `Project.contributors`. |
 | **Poetic project name** | The short, evocative two-word title (e.g. "Crimson Echo") auto-generated for a new empty project using the RiTa NLP library (`server/src/lib/projectName.ts`). |
+| **Sample (timeline unit)** | The unit for project-timeline timestamps and durations. Unless explicitly stated otherwise, every timeline position/length (e.g. `ProjectClip.start`, `ProjectClip.duration`) is an integer count of audio samples, **not** seconds. See `AGENTS.md`. |
 | **Owner** | The user who owns a project (`Project.owner`); a project has exactly one owner. |
 | **Project** | A unit of collaborative work: a titled container with an owner, contributors, and backing `ProjectData`. See the Data Models section. **"Project" is primarily a backend/code term** (entities, GraphQL operations, component names); in the app's user-facing copy a project is called a **Vamp** (plural **Vamps**). |
 | **Vamp (project)** | The user-facing name for a `Project`. Front-end copy refers to projects as "Vamps" (e.g. "Your Vamps", "New Vamp"); the backend, GraphQL schema, and code identifiers keep the `Project` name. Distinct from **Vamp** the product, though intentionally evocative of it. |
@@ -44,16 +45,48 @@ relational fields are persisted as references and exposed via field resolvers
 | `archived` | `Boolean` | Whether the project is archived (hidden from active lists). Defaults to `false`. |
 | `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
 
-### ProjectData
-`server/src/entities/ProjectData.ts` · GraphQL type `ProjectData`
+### ProjectClip
+`server/src/entities/ProjectClip.ts` · GraphQL type `ProjectClip`
 
-The editable content of a `Project` (tracks, regions, audio, etc.), split out so
-project metadata can be listed without loading large payloads. Empty for now;
-fields will be added as the editor takes shape.
+A clip placed on a `ProjectTrack` within a `ProjectData` timeline. An **embedded
+subdocument** stored in `ProjectData.clips`. `start`/`duration` are integers
+measured in **samples** (see the timeline-timestamp convention in `AGENTS.md`).
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `_id` | `ID` | Server-generated unique identifier. |
+| `start` | `Int` | Clip start position, in samples. |
+| `duration` | `Int` | Clip length, in samples. |
+| `track` | `ID` | The `_id` of the `ProjectTrack` (embedded on the same `ProjectData`) this clip is on. |
+| `creator` | `User` | The user who created the clip. Stored as a ref; **not** exposed via `@Field` yet (will be hydrated by a field resolver). |
+| `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
+
+### ProjectData
+`server/src/entities/ProjectData.ts` · GraphQL type `ProjectData`
+
+The editable content of a `Project` (tracks, clips, audio, etc.), split out so
+project metadata can be listed without loading large payloads. Tracks and clips
+are embedded subdocument arrays that load with the content.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `_id` | `ID` | Server-generated unique identifier. |
+| `tracks` | `[ProjectTrack!]!` | The project's tracks. Embedded; defaults to `[]`. |
+| `clips` | `[ProjectClip!]!` | The project's clips. Embedded; defaults to `[]`. |
+| `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
+
+### ProjectTrack
+`server/src/entities/ProjectTrack.ts` · GraphQL type `ProjectTrack`
+
+A single track within a `ProjectData` timeline. An **embedded subdocument**
+stored in `ProjectData.tracks`. Clips reference the track they live on by this
+document's `_id`.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `_id` | `ID` | Server-generated unique identifier. |
+| `name` | `String` | Track name. Required, trimmed. |
+| `creator` | `User` | The user who created the track. Stored as a ref; **not** exposed via `@Field` yet (will be hydrated by a field resolver). |
 | `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
 
 ### Session
@@ -91,8 +124,8 @@ hashes the password with scrypt (`server/src/lib/password.ts`).
 
 | Operation | Kind | Description |
 | --- | --- | --- |
-| `createEmptyProject(ownerId: ID!)` | Mutation | Creates a new empty project for the owner with an auto-generated poetic title (via RiTa) and auto-provisioned `ProjectData`. |
-| `createProject(input: CreateProjectInput!)` | Mutation | Creates a project from `{ title, ownerId, contributorIds }` and auto-provisions its `ProjectData`. |
+| `createEmptyProject(ownerId: ID!)` | Mutation | Creates a new empty project for the owner with an auto-generated poetic title (via RiTa) and auto-provisioned `ProjectData` seeded with a single starter `ProjectTrack` owned by the creator. |
+| `createProject(input: CreateProjectInput!)` | Mutation | Creates a project from `{ title, ownerId, contributorIds }` and auto-provisions its `ProjectData` (seeded with a single starter `ProjectTrack` owned by the creator). |
 | `login(input: LoginInput!)` | Mutation | Authenticates `{ email, password }`, begins a session (sets the HttpOnly session cookie), and returns the `User`. Returns a generic error on bad credentials. |
 | `logout` | Mutation | Ends the current session (deletes it and clears the cookie). Returns `Boolean`. |
 | `me` | Query | Returns the currently authenticated `User`, or null if not signed in. |

@@ -12,7 +12,13 @@ export class ProjectDataService {
     return this.projectData.findById(id);
   }
 
-  create(): Promise<ProjectData> {
-    return this.projectData.create();
+  /**
+   * Provision a new {@link ProjectData}, seeded with a single starter track
+   * owned by `creatorId` (the project's creator).
+   */
+  create(creatorId: string): Promise<ProjectData> {
+    return this.projectData.create({
+      tracks: [{ name: "Track 1", creator: creatorId }],
+    });
   }
 }

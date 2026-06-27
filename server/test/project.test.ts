@@ -26,6 +26,10 @@ const CREATE_PROJECT = /* GraphQL */ `
       }
       projectData {
         _id
+        tracks {
+          _id
+          name
+        }
       }
     }
   }
@@ -131,7 +135,7 @@ describe("Project API (field resolution + layered services)", () => {
         title: string;
         owner: { _id: string; username: string };
         contributors: { _id: string; username: string }[];
-        projectData: { _id: string };
+        projectData: { _id: string; tracks: { _id: string; name: string }[] };
       };
     }>(stack.apollo, CREATE_PROJECT, {
       input: { title: "First Song", ownerId, contributorIds: [contributorId] },
@@ -146,6 +150,12 @@ describe("Project API (field resolution + layered services)", () => {
 
     // ProjectData was created as a side effect of creating the project.
     await expect(ProjectDataModel.countDocuments()).resolves.toBe(1);
+
+    // It is seeded with a single starter track owned by the project's creator.
+    expect(project.projectData.tracks).toHaveLength(1);
+    const data = await ProjectDataModel.findById(project.projectData._id).lean();
+    expect(data?.tracks).toHaveLength(1);
+    expect(String(data?.tracks[0]?.creator)).toBe(ownerId);
 
     const fetched = await execute<{ project: { title: string; owner: { username: string } } | null }>(
       stack.apollo,

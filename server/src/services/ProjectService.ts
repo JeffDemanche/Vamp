@@ -38,7 +38,7 @@ export class ProjectService {
   }
 
   async create(input: CreateProjectInput): Promise<Project> {
-    const data = await this.projectData.create();
+    const data = await this.projectData.create(input.ownerId);
     return this.projects.create({
       title: input.title,
       owner: input.ownerId,
