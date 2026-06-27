@@ -127,27 +127,32 @@ function TimelineRuler({
     }
 
     // Major ticks: taller marks, stronger gridlines, and timestamp labels.
-    ctx.font =
-      "10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
     ctx.textBaseline = "top"
     ctx.textAlign = "left"
     const firstMajor = Math.ceil(startSeconds / labelStep) * labelStep
     for (let s = firstMajor; s <= endSeconds; s += labelStep) {
       const x = Math.round(xForSecond(s)) + 0.5
+      // Emphasize the origin (0s) so it stands out from the other markers.
+      const isOrigin = Math.round(s) === 0
 
-      ctx.globalAlpha = 0.28
+      ctx.lineWidth = isOrigin ? 1.5 : 1
+      ctx.globalAlpha = isOrigin ? 0.45 : 0.28
       ctx.beginPath()
       ctx.moveTo(x, 0)
       ctx.lineTo(x, height)
       ctx.stroke()
 
-      ctx.globalAlpha = 0.7
+      ctx.globalAlpha = isOrigin ? 1 : 0.7
       ctx.beginPath()
       ctx.moveTo(x, 0)
-      ctx.lineTo(x, 11)
+      ctx.lineTo(x, isOrigin ? 13 : 11)
       ctx.stroke()
+      ctx.lineWidth = 1
 
-      ctx.globalAlpha = 0.9
+      ctx.font = isOrigin
+        ? "bold 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        : "10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+      ctx.globalAlpha = isOrigin ? 1 : 0.9
       ctx.fillStyle = color
       ctx.fillText(formatTimestamp(s), x + 3, 12)
     }
