@@ -121,9 +121,23 @@ type ProjectUser {
   loop: Boolean!
   playEnd: Int!
   playStart: Int!
+  recording: ProjectUserRecording
+  selectedTrack: ID
   user: User!
   viewportEnd: Int!
   viewportStart: Int!
+}
+
+type ProjectUserRecording {
+  startSample: Int!
+  startedAt: DateTimeISO!
+  track: ID!
+}
+
+input ProjectUserRecordingInput {
+  startSample: Int!
+  startedAt: DateTimeISO!
+  track: ID!
 }
 
 type Query {
@@ -153,6 +167,8 @@ input UpdateProjectUserStateInput {
   playEnd: Int
   playStart: Int
   projectId: ID!
+  recording: ProjectUserRecordingInput
+  selectedTrack: ID
   viewportEnd: Int
   viewportStart: Int
 }

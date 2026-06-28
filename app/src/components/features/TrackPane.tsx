@@ -12,6 +12,7 @@ import {
   DeleteTrackMutation,
   ProjectQuery,
 } from "@/projects/queries"
+import { useSelectedTrack } from "@/state/timeline"
 
 /**
  * The pane to the left of the timeline listing the project's tracks. Reads the
@@ -28,6 +29,7 @@ export function TrackPane({ projectId }: { projectId: string }) {
 
   const [createTrack, { loading: creating }] = useMutation(CreateTrackMutation)
   const [deleteTrack, { loading: deleting }] = useMutation(DeleteTrackMutation)
+  const { selectedTrackId, setSelectedTrackId } = useSelectedTrack()
 
   const tracks = data?.project?.projectData.tracks ?? []
 
@@ -46,6 +48,10 @@ export function TrackPane({ projectId }: { projectId: string }) {
         <TrackInfo
           key={track._id}
           name={track.name}
+          selected={selectedTrackId === track._id}
+          onSelect={() =>
+            setSelectedTrackId(selectedTrackId === track._id ? null : track._id)
+          }
           deleteDisabled={deleting}
           onDelete={() =>
             deleteTrack({

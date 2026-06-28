@@ -2,6 +2,7 @@ import { useQuery } from "@apollo/client/react";
 import { Loader2 } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { ProjectTitleField } from "@/components/features/ProjectTitleField";
+import { EditorProvider } from "@/components/features/EditorProvider";
 import { TimelineEditor } from "@/components/features/TimelineEditor";
 import { TrackPane } from "@/components/features/TrackPane";
 import { ProjectQuery } from "@/projects/queries";
@@ -60,12 +61,14 @@ export function ProjectView() {
         </p>
       </header>
 
-      <div className="mt-6 flex min-h-0 flex-1 gap-3">
-        <TrackPane projectId={project._id} />
-        <div className="min-w-0 flex-1">
-          <TimelineEditor projectId={project._id} initialState={data?.projectUser} />
+      <EditorProvider projectId={project._id} initialState={data?.projectUser}>
+        <div className="mt-6 flex min-h-0 flex-1 gap-3">
+          <TrackPane projectId={project._id} />
+          <div className="min-w-0 flex-1">
+            <TimelineEditor projectId={project._id} />
+          </div>
         </div>
-      </div>
+      </EditorProvider>
     </div>
   );
 }

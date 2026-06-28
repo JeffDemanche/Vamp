@@ -29,6 +29,21 @@ function refToId(ref: unknown): string {
 }
 
 @InputType()
+export class ProjectUserRecordingInput {
+  /** `_id` of the embedded `ProjectTrack` the recording is captured on. */
+  @Field(() => ID)
+  track!: string;
+
+  /** Timeline sample the recording starts at. */
+  @Field(() => Int)
+  startSample!: number;
+
+  /** Wall-clock instant the recording began. */
+  @Field()
+  startedAt!: Date;
+}
+
+@InputType()
 export class UpdateProjectUserStateInput {
   @Field(() => ID)
   projectId!: string;
@@ -47,6 +62,20 @@ export class UpdateProjectUserStateInput {
 
   @Field(() => Int, { nullable: true })
   viewportEnd?: number;
+
+  /**
+   * `_id` of the track to select. Pass `null` to deselect. Omit to leave the
+   * current selection untouched.
+   */
+  @Field(() => ID, { nullable: true })
+  selectedTrack?: string | null;
+
+  /**
+   * The active recording, or `null` to stop/clear it. Omit to leave the current
+   * recording untouched.
+   */
+  @Field(() => ProjectUserRecordingInput, { nullable: true })
+  recording?: ProjectUserRecordingInput | null;
 }
 
 /**
@@ -83,6 +112,8 @@ export class ProjectUserResolver {
       loop: input.loop,
       viewportStart: input.viewportStart,
       viewportEnd: input.viewportEnd,
+      selectedTrack: input.selectedTrack,
+      recording: input.recording,
     });
   }
 

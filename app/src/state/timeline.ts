@@ -86,6 +86,28 @@ export const playEndAtom = atom<number>(DEFAULT_PLAY_END);
  */
 export const loopEnabledAtom = atom<boolean>(DEFAULT_LOOP_ENABLED);
 
+/**
+ * `_id` of the embedded `ProjectTrack` the user has selected. New recordings
+ * land on the selected track; at most one is selected at a time. `null` when
+ * none is selected. Persisted on `ProjectUser.selectedTrack`.
+ */
+export const selectedTrackIdAtom = atom<string | null>(null);
+
+/**
+ * The user's active recording, or `null` when not recording. Persisted on
+ * `ProjectUser.recording` so collaborators can observe live recording state.
+ */
+export type RecordingState = {
+  /** `_id` of the track the recording is captured on. */
+  trackId: string;
+  /** Timeline sample the recording starts at. */
+  startSample: number;
+  /** Wall-clock instant the recording began (ISO-8601 string). */
+  startedAt: string;
+};
+
+export const recordingAtom = atom<RecordingState | null>(null);
+
 // --- Derived atoms --------------------------------------------------------
 
 /** Sample at the left-hand cutoff of the timeline. */
@@ -160,6 +182,34 @@ export const toggleLoopAtom = atom(null, (get, set) => {
   set(loopEnabledAtom, !get(loopEnabledAtom));
 });
 
+/**
+ * Select a track by id, or pass `null` to deselect. At most one track is
+ * selected at a time.
+ */
+export const setSelectedTrackIdAtom = atom(
+  null,
+  (_get, set, trackId: string | null) => {
+    set(selectedTrackIdAtom, trackId);
+  },
+);
+
+/** Begin recording on `trackId` at `startSample`. */
+export const startRecordingAtom = atom(
+  null,
+  (_get, set, { trackId, startSample }: { trackId: string; startSample: number }) => {
+    set(recordingAtom, {
+      trackId,
+      startSample: Math.round(startSample),
+      startedAt: new Date().toISOString(),
+    });
+  },
+);
+
+/** End the active recording. */
+export const stopRecordingAtom = atom(null, (_get, set) => {
+  set(recordingAtom, null);
+});
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -192,15 +242,32 @@ export type PersistedEditorState = {
   playStart: number;
   playEnd: number;
   loop: boolean;
+  selectedTrack: string | null;
+  recording: {
+    track: string;
+    startSample: number;
+    startedAt: string;
+  } | null;
 };
 
-export const persistedEditorStateAtom = atom<PersistedEditorState>((get) => ({
-  viewportStart: get(viewportStartAtom),
-  viewportEnd: get(viewportEndAtom),
-  playStart: get(playStartAtom),
-  playEnd: get(playEndAtom),
-  loop: get(loopEnabledAtom),
-}));
+export const persistedEditorStateAtom = atom<PersistedEditorState>((get) => {
+  const recording = get(recordingAtom);
+  return {
+    viewportStart: get(viewportStartAtom),
+    viewportEnd: get(viewportEndAtom),
+    playStart: get(playStartAtom),
+    playEnd: get(playEndAtom),
+    loop: get(loopEnabledAtom),
+    selectedTrack: get(selectedTrackIdAtom),
+    recording: recording
+      ? {
+          track: recording.trackId,
+          startSample: recording.startSample,
+          startedAt: recording.startedAt,
+        }
+      : null,
+  };
+});
 
 /** Read the aggregated editor view state that is persisted per user. */
 export function usePersistedEditorState(): PersistedEditorState {
@@ -271,4 +338,43 @@ export function useTimelinePlayback(): UseTimelinePlayback {
   const toggleLoop = useSetAtom(toggleLoopAtom);
 
   return { playStart, playEnd, loop, setPlayStart, setPlayEnd, toggleLoop };
+}
+
+export type UseSelectedTrack = {
+  /** `_id` of the selected track, or `null` when none is selected. */
+  selectedTrackId: string | null;
+  /** Select a track by id, or pass `null` to deselect. */
+  setSelectedTrackId: (trackId: string | null) => void;
+};
+
+/** Typed access to the user's selected track for feature/view components. */
+export function useSelectedTrack(): UseSelectedTrack {
+  const selectedTrackId = useAtomValue(selectedTrackIdAtom);
+  const setSelectedTrackId = useSetAtom(setSelectedTrackIdAtom);
+  return { selectedTrackId, setSelectedTrackId };
+}
+
+export type UseRecording = {
+  /** The active recording, or `null` when not recording. */
+  recording: RecordingState | null;
+  /** Whether a recording is currently in progress. */
+  isRecording: boolean;
+  /** Begin recording on `trackId` at `startSample`. */
+  startRecording: (trackId: string, startSample: number) => void;
+  /** End the active recording. */
+  stopRecording: () => void;
+};
+
+/** Typed access to the user's recording state for feature/view components. */
+export function useRecording(): UseRecording {
+  const recording = useAtomValue(recordingAtom);
+  const start = useSetAtom(startRecordingAtom);
+  const stop = useSetAtom(stopRecordingAtom);
+
+  return {
+    recording,
+    isRecording: recording !== null,
+    startRecording: (trackId, startSample) => start({ trackId, startSample }),
+    stopRecording: stop,
+  };
 }

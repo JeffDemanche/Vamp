@@ -17,11 +17,13 @@ at the bottom.
 | **Collaborative music-making** | The core value proposition: multiple users creating music together. Surfaced as the app's tagline on the home screen. |
 | **Contributor** | A user who collaborates on a project but does not own it. Tracked in `Project.contributors` as `ProjectUser` memberships (not bare users). |
 | **Poetic project name** | The short, evocative two-word title (e.g. "Crimson Echo") auto-generated for a new empty project using the RiTa NLP library (`server/src/lib/projectName.ts`). |
+| **Recording** | A user's in-flight audio take within a project. Client editor state held in jotai (`recordingAtom` in `app/src/state/timeline.ts`): which track (`trackId`), the timeline `startSample` where the take begins, and the wall-clock `startedAt` instant. Armed from the `TimelineToolbar` record button on the **selected track**; if playback is stopped it also starts transport (with `startSample = playStart`), otherwise `startSample` is the live playhead. Recording ends whenever playback stops (`RecordingTransportController`). Persisted per user on `ProjectUser.recording` via `ProjectUserSync` so collaborators can observe live recording state in future. |
 | **Sample (timeline unit)** | The unit for project-timeline timestamps and durations. Unless explicitly stated otherwise, every timeline position/length (e.g. `ProjectClip.start`, `ProjectClip.duration`) is an integer count of audio samples, **not** seconds. See `AGENTS.md`. |
+| **Selected track** | The one `ProjectTrack` the user has armed for new recordings. Client editor state (`selectedTrackIdAtom` in `app/src/state/timeline.ts`); at most one track is selected at a time, toggled by clicking a `TrackInfo` row in the `TrackPane`. Persisted per user on `ProjectUser.selectedTrack` via `ProjectUserSync`. |
 | **Timeline viewport** | The slice of the project timeline currently visible in the editor, expressed in samples as `{ start, end }` — the sample coordinates at the timeline's left- and right-hand cutoffs (either may be negative). Client editor state held in jotai (`app/src/state/timeline.ts`), modified by pan/zoom gestures, and persisted per user on `ProjectUser` (`viewportStart`/`viewportEnd`) via `ProjectUserSync`. |
 | **Owner** | The user who owns a project; a project has exactly one owner. Stored as `Project.owner`, a reference to the owner's `ProjectUser` membership (not the bare user). |
 | **Audio upload flow** | How a clip's audio gets into storage without passing the bytes through the GraphQL API. `createAudioUpload` registers a `PENDING` `ProjectAudio` and returns an upload URL pointing at the server's `PUT /audio/upload/:audioId` route; the client `PUT`s the bytes there and the server forwards them to the configured **Audio storage** backend; then `createClip` confirms the object landed (`head`), flips the audio to `READY`, and links it to the timeline. The client helper `uploadAudioAndCreateClip` runs the whole flow (`app/src/projects/audioUpload.ts`). (Uploads are server-proxied for a uniform local/Vercel path; note Vercel Functions cap bodies at ~4.5 MB — larger files will need Vercel client uploads/multipart.) |
-| **Playback range** | The sample window playback uses in the editor: `playStart` (where playback begins), `playEnd` (where it loops back to `playStart`), and a `loop` flag. `playEnd` is always a concrete sample position (kept `>= playStart`) but **only matters when `loop` is on**; with looping off, `playEnd` is ignored and playback runs indefinitely. Client-only editor state held in jotai (`app/src/state/timeline.ts`), visualized by the `TimelinePlayhead` scrubbers (the `playEnd` scrubber shows only while looping), reflected into the `AudioEngine`, and toggled (`loop`) via the `TimelineToolbar`. Persisted per user on `ProjectUser` (`playStart`/`playEnd`/`loop`) via `ProjectUserSync` as it changes; hydrating it back on load is not wired up yet. |
+| **Playback range** | The sample window playback uses in the editor: `playStart` (where playback begins), `playEnd` (where it loops back to `playStart`), and a `loop` flag. `playEnd` is always a concrete sample position (kept `>= playStart`) but **only matters when `loop` is on**; with looping off, `playEnd` is ignored and playback runs indefinitely. Client editor state held in jotai (`app/src/state/timeline.ts`), visualized by the `TimelinePlayhead` scrubbers (the `playEnd` scrubber shows only while looping), reflected into the `AudioEngine`, and toggled (`loop`) via the `TimelineToolbar`. Persisted per user on `ProjectUser` (`playStart`/`playEnd`/`loop`) via `ProjectUserSync`. |
 | **Project** | A unit of collaborative work: a titled container with an owner, contributors, and backing `ProjectData`. See the Data Models section. **"Project" is primarily a backend/code term** (entities, GraphQL operations, component names); in the app's user-facing copy a project is called a **Vamp** (plural **Vamps**). |
 | **Vamp (project)** | The user-facing name for a `Project`. Front-end copy refers to projects as "Vamps" (e.g. "Your Vamps", "New Vamp"); the backend, GraphQL schema, and code identifiers keep the `Project` name. Distinct from **Vamp** the product, though intentionally evocative of it. |
 
@@ -136,11 +138,12 @@ is provisioned for the owner and each contributor when a project is created.
 The `project`/`user` relations are persisted as refs with **no** `@Field` (they
 are lookup keys); the `user` is hydrated via a field resolver. Beyond membership
 it holds the editor's local view state so it survives reloads: the **playback
-range** (`playStart`/`playEnd`/`loop`) and the **Timeline viewport**
-(`viewportStart`/`viewportEnd`). All sample fields are integers in **samples**
+range** (`playStart`/`playEnd`/`loop`), the **Timeline viewport**
+(`viewportStart`/`viewportEnd`), the **selected track** (`selectedTrack`), and the
+active **Recording** (`recording`). All sample fields are integers in **samples**
 (see `AGENTS.md`); defaults mirror the client's timeline defaults at 44.1 kHz. The
-client persists changes through `updateProjectUserState` (via `ProjectUserSync`);
-reading it back to hydrate the editor on load is not wired up yet.
+client persists changes through `updateProjectUserState` (via `ProjectUserSync`) and
+hydrates them on load via `EditorProvider`.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -152,7 +155,22 @@ reading it back to hydrate the editor on load is not wired up yet.
 | `loop` | `Boolean` | Whether playback loops back to `playStart` at `playEnd`. Defaults to `false`. |
 | `viewportStart` | `Int` | Saved left edge of the visible timeline, in samples (may be negative). Defaults to `-44100`. |
 | `viewportEnd` | `Int` | Saved right edge of the visible timeline, in samples (may be negative). Defaults to `441000`. |
+| `selectedTrack` | `ID` | `_id` of the embedded `ProjectTrack` the user has selected for new recordings. Nullable; `null` when none is selected. |
+| `recording` | `ProjectUserRecording` | The user's in-flight recording, or `null` when not recording. Embedded subdocument. |
 | `createdAt` | `DateTimeISO` | Set on creation; defaults to now. |
+
+### ProjectUserRecording
+`server/src/entities/ProjectUser.ts` · GraphQL type `ProjectUserRecording`
+
+A user's **active recording** within a project — the in-flight take being captured.
+Embedded on `ProjectUser` (a subdocument with no own `_id`) and `null` whenever
+the user is not recording.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `track` | `ID` | `_id` of the embedded `ProjectTrack` the take is captured on (the user's `selectedTrack` when recording began). |
+| `startSample` | `Int` | Timeline sample the recording starts at (in **samples**). |
+| `startedAt` | `DateTimeISO` | Wall-clock instant recording began. |
 
 ### Session
 `server/src/entities/Session.ts` · no GraphQL type
@@ -204,7 +222,7 @@ hashes the password with scrypt (`server/src/lib/password.ts`).
 | `projectsByUser(userId: ID!, includeArchived: Boolean = false)` | Query | Returns projects the user owns or contributes to (`[Project!]!`), newest first. Archived projects are excluded unless `includeArchived` is `true`. |
 | `register(input: RegisterInput!)` | Mutation | Registers a new account from `{ username, email, password }` (password hashed with scrypt) and returns the `User`. |
 | `setProjectArchived(id: ID!, archived: Boolean!)` | Mutation | Archives or unarchives a project, returning the updated `Project`. |
-| `updateProjectUserState(input: UpdateProjectUserStateInput!)` | Mutation | Persists (a subset of) the signed-in user's editor view state (`{ projectId, playStart?, playEnd?, loop?, viewportStart?, viewportEnd? }`) for a project, upserting the `ProjectUser` (only provided fields are written) and returning it. |
+| `updateProjectUserState(input: UpdateProjectUserStateInput!)` | Mutation | Persists (a subset of) the signed-in user's editor view state (`{ projectId, playStart?, playEnd?, loop?, viewportStart?, viewportEnd?, selectedTrack?, recording? }`) for a project, upserting the `ProjectUser` (only provided fields are written; pass `null` for `selectedTrack`/`recording` to clear them) and returning it. |
 | `updateProjectMetadata(input: UpdateProjectMetadataInput!)` | Mutation | Updates metadata stored directly on a `Project` (currently `title`); `ProjectData` content has separate flows. |
 | `user(id: ID!)` | Query | Returns a single user by id, or null. |
 | `userByEmail(email: String!)` | Query | Returns a single user by email, or null. |
@@ -218,11 +236,12 @@ hashes the password with scrypt (`server/src/lib/password.ts`).
 | **AudioEngine** | The client-side playback engine: the interface between the editor UI, the Web Audio API, the decoded audio files it holds in memory, and the **audio events** derived from a project's clips. `update` reflects the editor state it depends on (clips plus the timeline's sample rate and **Playback range**, including `loop`) and re-derives its events; `play`/`stop` begin/end playback by scheduling each event as a Web Audio source against the audio clock; with `loop` on it restarts at `playStart` when it reaches `playEnd` instead of stopping. It tracks the playing state and the audio-clock/sample anchors so its `timecode` getter reports the current timeline position (in samples) accurately for the UI to poll (`app/src/audio/AudioEngine.ts`). |
 | **AudioEngineProvider** | The client glue that owns one `AudioEngine` per timeline editor and keeps it in sync with the editor's jotai state. Rendered inside the editor's jotai `Provider`; an effect pushes the sample rate and **Playback range** into `engine.update`. Exposes `useAudioEngine` (the instance), `useAudioEnginePlaying` (reactive playing state), and `useAudioEngineTimecode` (the live `timecode`, polled on `requestAnimationFrame` for the playhead) (`app/src/audio/AudioEngineProvider.tsx`). |
 | **Clip (component)** | The pure composite that renders a `ProjectClip` on the timeline. The owning feature absolutely positions it (left/width from the clip's sample `start`/`duration`) within a track lane; the composite supplies the clip box, its header `label`, consistent interactive affordances (hover/focus/pressed plus a `selected` highlight ring), and two variants: `standard` (a placed clip) and `recording` (a clip actively being recorded — destructive-tinted and pulsing). All state arrives via props (`app/src/components/composites/clip.tsx`). |
-| **CreateProjectButton** | A feature button in the `UserHomeView` toolbar that creates a new empty project (auto-named via `createEmptyProject`), refreshes the project list, and navigates into the new project (`app/src/components/features/CreateProjectButton.tsx`). |
+| **EditorProvider** | Scopes the project editor's jotai state to one editor instance: hydrates atoms from the user's saved `ProjectUser` on mount and mounts `ProjectUserSync` to persist changes. Wraps both the `TrackPane` and `TimelineEditor` so they share viewport, playback, selected-track, and recording state (`app/src/components/features/EditorProvider.tsx`). |
 | **LandingView** | The landing view at `/`, showing the Vamp title, tagline, login/sign-up links, and the list of users (`app/src/components/views/LandingView.tsx`). |
 | **LoginView** | The login view at `/login`; an email + password form that begins a session and redirects to `/home` on success (`app/src/components/views/LoginView.tsx`). |
 | **ProjectTitleField** | A feature that renders a project's title as an editable heading and persists edits via `updateProjectMetadata` (optimistically); used in the `ProjectView` header (`app/src/components/features/ProjectTitleField.tsx`). |
-| **ProjectUserSync** | A headless feature listener that persists the signed-in user's editor view state to `ProjectUser` as it changes. It subscribes to the aggregated `persistedEditorStateAtom` (timeline viewport + playback range + loop), debounces bursts (e.g. pan/zoom), and upserts via `updateProjectUserState`, skipping the initial mount value. Mounted inside `TimelineEditor`'s jotai `Provider` (`app/src/components/features/ProjectUserSync.tsx`). |
+| **ProjectUserSync** | A headless feature listener that persists the signed-in user's editor view state to `ProjectUser` as it changes. It subscribes to the aggregated `persistedEditorStateAtom` (timeline viewport + playback range + loop + selected track + recording), debounces bursts (e.g. pan/zoom), and upserts via `updateProjectUserState`, skipping the initial mount value. Mounted inside `EditorProvider`'s jotai `Provider` (`app/src/components/features/ProjectUserSync.tsx`). |
+| **RecordingTransportController** | A headless feature listener that ends the active recording whenever playback stops. Recording is tied to the transport: arming record starts playback if stopped, and any stop clears recording. Mounted inside `TimelineEditor`'s `AudioEngineProvider` (`app/src/components/features/RecordingTransportController.tsx`). |
 | **ProjectView** | The view for a single project at `/projects/:projectId`. Fetches the project (via the `project` query) and shows its name (an editable `ProjectTitleField`) and owner at the top, with a `TrackPane` and the `TimelineEditor` filling the rest of the screen side by side (`app/src/components/views/ProjectView.tsx`). Guarded by `RequireAuth`. |
 | **ProjectsTable** | A feature that lists a user's non-archived projects in a table, each row linking into the project; used by `UserHomeView` (`app/src/components/features/ProjectsTable.tsx`). |
 | **RegisterView** | The registration view at `/register`; a username/email/password form that creates an account, then sends the user to `LoginView` (`app/src/components/views/RegisterView.tsx`). |

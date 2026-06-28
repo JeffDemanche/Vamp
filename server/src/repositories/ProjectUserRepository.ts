@@ -1,10 +1,17 @@
-import { ProjectUser, ProjectUserModel } from "../entities/ProjectUser";
+import {
+  ProjectUser,
+  ProjectUserModel,
+  ProjectUserRecording,
+} from "../entities/ProjectUser";
 
 /**
  * The persistable {@link ProjectUser} editor-view fields. Every field is
  * optional so callers can persist just the values that changed; omitted fields
- * are left untouched (and fall back to schema defaults on first insert). New
- * persisted view-state fields slot in here without touching the upsert logic.
+ * (`undefined`) are left untouched (and fall back to schema defaults on first
+ * insert). Nullable fields (`selectedTrack`/`recording`) accept `null`
+ * explicitly to *clear* them (e.g. deselecting a track, stopping a recording).
+ * New persisted view-state fields slot in here without touching the upsert
+ * logic.
  */
 export interface ProjectUserStateData {
   playStart?: number;
@@ -12,6 +19,8 @@ export interface ProjectUserStateData {
   loop?: boolean;
   viewportStart?: number;
   viewportEnd?: number;
+  selectedTrack?: string | null;
+  recording?: ProjectUserRecording | null;
 }
 
 /** The mutable fields, used to project `data` into a Mongo `$set`. */
@@ -21,6 +30,8 @@ const STATE_FIELDS = [
   "loop",
   "viewportStart",
   "viewportEnd",
+  "selectedTrack",
+  "recording",
 ] as const;
 
 /**
@@ -66,9 +77,15 @@ export class ProjectUserRepository {
     userId: string,
     data: ProjectUserStateData,
   ): Promise<ProjectUser> {
-    const $set: Partial<Record<(typeof STATE_FIELDS)[number], number | boolean>> = {};
+    const $set: Partial<
+      Record<
+        (typeof STATE_FIELDS)[number],
+        number | boolean | string | ProjectUserRecording | null
+      >
+    > = {};
     for (const field of STATE_FIELDS) {
       const value = data[field];
+      // `undefined` leaves the field untouched; an explicit `null` clears it.
       if (value !== undefined) $set[field] = value;
     }
 

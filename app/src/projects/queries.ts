@@ -61,6 +61,12 @@ export const ProjectQuery = graphql(`
       loop
       viewportStart
       viewportEnd
+      selectedTrack
+      recording {
+        track
+        startSample
+        startedAt
+      }
     }
   }
 `);
@@ -110,8 +116,8 @@ export const UpdateProjectMetadataMutation = graphql(`
 
 /**
  * Persists (a subset of) the signed-in user's editor view state for a project —
- * the timeline viewport, playback range, and loop flag. Used by `ProjectUserSync`
- * to save local timeline state as it changes.
+ * the timeline viewport, playback range, loop flag, selected track, and active
+ * recording. Used by `ProjectUserSync` to save local timeline state as it changes.
  */
 export const UpdateProjectUserStateMutation = graphql(`
   mutation UpdateProjectUserState($input: UpdateProjectUserStateInput!) {
@@ -122,6 +128,12 @@ export const UpdateProjectUserStateMutation = graphql(`
       loop
       viewportStart
       viewportEnd
+      selectedTrack
+      recording {
+        track
+        startSample
+        startedAt
+      }
     }
   }
 `);

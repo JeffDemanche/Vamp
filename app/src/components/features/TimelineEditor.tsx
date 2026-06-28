@@ -1,55 +1,13 @@
-import { Provider, type WritableAtom } from "jotai"
-import { useHydrateAtoms } from "jotai/utils"
-
 import {
   AudioEngineProvider,
   useAudioEnginePlaying,
   useAudioEngineTimecode,
 } from "@/audio/AudioEngineProvider"
 import { Timeline } from "@/components/composites/timeline"
-import { ProjectUserSync } from "@/components/features/ProjectUserSync"
+import { RecordingTransportController } from "@/components/features/RecordingTransportController"
 import { TimelineToolbar } from "@/components/features/TimelineToolbar"
 import { TrackLanes } from "@/components/features/TrackLanes"
-import {
-  loopEnabledAtom,
-  playEndAtom,
-  playStartAtom,
-  useTimelinePlayback,
-  useTimelineViewport,
-  viewportAtom,
-} from "@/state/timeline"
-
-/**
- * The saved editor view state used to seed the timeline, mirroring the
- * persisted fields on `ProjectUser`. Null when the user has no saved state.
- */
-export type InitialEditorState = {
-  viewportStart: number
-  viewportEnd: number
-  playStart: number
-  playEnd: number
-  loop: boolean
-} | null | undefined
-
-/**
- * Seeds the editor's jotai atoms from the active user's saved `ProjectUser`
- * state on first render (before children read the atoms). When there is no saved
- * state, the atoms keep their module defaults. One-shot per `Provider`.
- */
-function HydrateEditorState({ state }: { state: InitialEditorState }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const values: Array<readonly [WritableAtom<unknown, any[], unknown>, unknown]> =
-    state
-      ? [
-          [viewportAtom, { start: state.viewportStart, end: state.viewportEnd }],
-          [playStartAtom, state.playStart],
-          [playEndAtom, state.playEnd],
-          [loopEnabledAtom, state.loop],
-        ]
-      : []
-  useHydrateAtoms(values)
-  return null
-}
+import { useTimelinePlayback, useTimelineViewport } from "@/state/timeline"
 
 /**
  * Domain-aware wrapper that connects the timeline's jotai viewport and playback
@@ -82,33 +40,22 @@ function TimelineEditorInner({ projectId }: { projectId: string }) {
 }
 
 /**
- * Entry point for the project editor's timeline. Owns a jotai `Provider` (so the
- * viewport/playback state is scoped to this editor instance and resets on
- * unmount) and an `AudioEngineProvider` (one engine per editor), then stacks the
- * playback `TimelineToolbar` above the timeline surface. The state is seeded from
- * the active user's saved `ProjectUser` (`initialState`), and a `ProjectUserSync`
- * listener persists changes back as the user edits.
+ * Entry point for the project editor's timeline surface. Expects to be rendered
+ * inside `EditorProvider` (shared jotai scope) and owns an `AudioEngineProvider`
+ * (one engine per editor), then stacks the playback `TimelineToolbar` above the
+ * timeline. `RecordingTransportController` stops recording when playback ends.
  */
-function TimelineEditor({
-  projectId,
-  initialState,
-}: {
-  projectId: string
-  initialState?: InitialEditorState
-}) {
+function TimelineEditor({ projectId }: { projectId: string }) {
   return (
-    <Provider>
-      <HydrateEditorState state={initialState} />
-      <ProjectUserSync projectId={projectId} />
-      <AudioEngineProvider>
-        <div className="flex h-full flex-col">
-          <TimelineToolbar />
-          <div className="min-h-0 flex-1">
-            <TimelineEditorInner projectId={projectId} />
-          </div>
+    <AudioEngineProvider>
+      <RecordingTransportController />
+      <div className="flex h-full flex-col">
+        <TimelineToolbar />
+        <div className="min-h-0 flex-1">
+          <TimelineEditorInner projectId={projectId} />
         </div>
-      </AudioEngineProvider>
-    </Provider>
+      </div>
+    </AudioEngineProvider>
   )
 }
 

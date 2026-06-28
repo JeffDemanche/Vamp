@@ -4,6 +4,39 @@ import { Project } from "./Project";
 import { User } from "./User";
 
 /**
+ * A user's **active recording** within a project — the in-flight take being
+ * captured. Embedded on {@link ProjectUser} (a subdocument, no own `_id`) and
+ * `null` whenever the user is not recording. Persisting it per user lets the
+ * editor restore an interrupted recording and, in future, surface other
+ * collaborators' live recording state.
+ *
+ * - `track` is the `_id` of the embedded {@link ProjectTrack} the take lands on
+ *   (the user's currently `selectedTrack` at the moment recording began).
+ * - `startSample` is the timeline sample the recording starts at (in **samples**
+ *   — see `AGENTS.md`): the playback start when recording began from a stopped
+ *   transport, or the live playhead when armed mid-playback.
+ * - `startedAt` is the wall-clock instant recording began, so elapsed real time
+ *   (and thus the growing recorded length) can be derived for any observer.
+ */
+@ObjectType()
+export class ProjectUserRecording {
+  /** `_id` of the embedded `ProjectTrack` the recording is being captured on. */
+  @Field(() => ID)
+  @prop({ required: true })
+  track!: string;
+
+  /** Timeline sample the recording starts at. */
+  @Field(() => Int)
+  @prop({ required: true })
+  startSample!: number;
+
+  /** Wall-clock instant the recording began. */
+  @Field()
+  @prop({ required: true })
+  startedAt!: Date;
+}
+
+/**
  * A {@link User}'s membership in a {@link Project}: the join record that ties a
  * user to a project, also carrying that user's per-project editor "view state"
  * so it survives reloads:
@@ -66,6 +99,23 @@ export class ProjectUser {
   @Field(() => Int)
   @prop({ required: true, default: 441_000 })
   viewportEnd!: number;
+
+  /**
+   * `_id` of the embedded {@link ProjectTrack} this user has selected. New
+   * recordings land on the selected track; at most one is selected at a time.
+   * `null` when no track is selected.
+   */
+  @Field(() => ID, { nullable: true })
+  @prop({ type: String })
+  selectedTrack?: string | null;
+
+  /**
+   * The user's in-flight recording, or `null` when they are not recording.
+   * Embedded subdocument (no own `_id`).
+   */
+  @Field(() => ProjectUserRecording, { nullable: true })
+  @prop({ type: () => ProjectUserRecording, _id: false })
+  recording?: ProjectUserRecording | null;
 
   @Field()
   @prop({ default: () => new Date() })

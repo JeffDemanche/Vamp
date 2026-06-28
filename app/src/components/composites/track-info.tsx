@@ -7,6 +7,10 @@ import { cn } from "@/lib/utils"
 type TrackInfoProps = {
   /** The track's display name. */
   name: string
+  /** Whether this track is the active/selected one. */
+  selected?: boolean
+  /** Called when the user activates the row to select this track. */
+  onSelect?: () => void
   /**
    * Called when the user activates the delete control. When omitted, no delete
    * button is shown.
@@ -24,12 +28,36 @@ type TrackInfoProps = {
  * callback so the owning feature performs the mutation. Future controls
  * (mute/solo, rename, etc.) will be added here and surfaced as callbacks too.
  */
-function TrackInfo({ name, onDelete, deleteDisabled, className }: TrackInfoProps) {
+function TrackInfo({
+  name,
+  selected = false,
+  onSelect,
+  onDelete,
+  deleteDisabled,
+  className,
+}: TrackInfoProps) {
   return (
     <div
       data-slot="track-info"
+      data-selected={selected}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      aria-pressed={onSelect ? selected : undefined}
+      onClick={onSelect}
+      onKeyDown={
+        onSelect
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault()
+                onSelect()
+              }
+            }
+          : undefined
+      }
       className={cn(
-        "group/track-info flex h-14 items-center gap-2 rounded-md border border-border bg-card px-3",
+        "group/track-info flex h-14 items-center gap-2 rounded-md border border-border bg-card px-3 transition-[border-color,box-shadow]",
+        onSelect && "cursor-pointer hover:border-ring/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        selected && "border-primary ring-2 ring-primary",
         className,
       )}
     >
@@ -43,7 +71,10 @@ function TrackInfo({ name, onDelete, deleteDisabled, className }: TrackInfoProps
           size="icon-sm"
           aria-label={`Delete track ${name}`}
           disabled={deleteDisabled}
-          onClick={onDelete}
+          onClick={(event) => {
+            event.stopPropagation()
+            onDelete()
+          }}
           className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover/track-info:opacity-100"
         >
           <Trash2 aria-hidden />
