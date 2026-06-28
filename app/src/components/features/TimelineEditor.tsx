@@ -9,6 +9,7 @@ import {
 import { Timeline } from "@/components/composites/timeline"
 import { ProjectUserSync } from "@/components/features/ProjectUserSync"
 import { TimelineToolbar } from "@/components/features/TimelineToolbar"
+import { TrackLanes } from "@/components/features/TrackLanes"
 import {
   loopEnabledAtom,
   playEndAtom,
@@ -56,7 +57,7 @@ function HydrateEditorState({ state }: { state: InitialEditorState }) {
  * play range, forwards pan/zoom gestures back into the atoms, and feeds the
  * `AudioEngine`'s live timecode down as the moving playhead while playing.
  */
-function TimelineEditorInner() {
+function TimelineEditorInner({ projectId }: { projectId: string }) {
   const { start, end, sampleRate, pan, zoom } = useTimelineViewport()
   const { playStart, playEnd, loop } = useTimelinePlayback()
 
@@ -74,7 +75,9 @@ function TimelineEditorInner() {
       playbackPosition={playing ? timecode : null}
       onPan={pan}
       onZoom={zoom}
-    />
+    >
+      <TrackLanes projectId={projectId} />
+    </Timeline>
   )
 }
 
@@ -101,7 +104,7 @@ function TimelineEditor({
         <div className="flex h-full flex-col">
           <TimelineToolbar />
           <div className="min-h-0 flex-1">
-            <TimelineEditorInner />
+            <TimelineEditorInner projectId={projectId} />
           </div>
         </div>
       </AudioEngineProvider>
