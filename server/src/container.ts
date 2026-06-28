@@ -11,6 +11,7 @@ import { ProjectAudioService } from "./services/ProjectAudioService";
 import { ProjectClipService } from "./services/ProjectClipService";
 import { ProjectDataService } from "./services/ProjectDataService";
 import { ProjectService } from "./services/ProjectService";
+import { ProjectTrackService } from "./services/ProjectTrackService";
 import { ProjectUserService } from "./services/ProjectUserService";
 import { UserService } from "./services/UserService";
 
@@ -27,6 +28,7 @@ export interface Services {
   projectUsers: ProjectUserService;
   projectAudios: ProjectAudioService;
   projectClips: ProjectClipService;
+  projectTracks: ProjectTrackService;
 }
 
 /** Overrides for the composition root, primarily so tests can inject fakes. */
@@ -64,6 +66,7 @@ export function createServices(options: CreateServicesOptions = {}): Services {
     config.audio.publicBaseUrl,
   );
   const projectClips = new ProjectClipService(projects, projectData, projectAudios);
+  const projectTracks = new ProjectTrackService(projects, projectData);
 
   return {
     users,
@@ -73,5 +76,6 @@ export function createServices(options: CreateServicesOptions = {}): Services {
     projectUsers,
     projectAudios,
     projectClips,
+    projectTracks,
   };
 }

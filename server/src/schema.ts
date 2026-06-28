@@ -4,6 +4,7 @@ import { AuthResolver } from "./resolvers/AuthResolver";
 import { ProjectAudioResolver } from "./resolvers/ProjectAudioResolver";
 import { ProjectClipResolver } from "./resolvers/ProjectClipResolver";
 import { ProjectResolver } from "./resolvers/ProjectResolver";
+import { ProjectTrackResolver } from "./resolvers/ProjectTrackResolver";
 import { ProjectUserResolver } from "./resolvers/ProjectUserResolver";
 import { UserResolver } from "./resolvers/UserResolver";
 
@@ -23,6 +24,7 @@ export async function createSchema(
       ProjectUserResolver,
       ProjectAudioResolver,
       ProjectClipResolver,
+      ProjectTrackResolver,
     ],
     emitSchemaFile: options.emitSchemaFile ?? false,
     validate: true,

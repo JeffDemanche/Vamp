@@ -2,6 +2,7 @@ import type { ProjectClip } from "../entities/ProjectClip";
 import type { ProjectData } from "../entities/ProjectData";
 import type {
   AddClipData,
+  AddTrackData,
   ProjectDataRepository,
 } from "../repositories/ProjectDataRepository";
 
@@ -19,6 +20,19 @@ export class ProjectDataService {
   /** Append a clip to a project's timeline, returning the created clip. */
   addClip(projectDataId: string, data: AddClipData): Promise<ProjectClip> {
     return this.projectData.addClip(projectDataId, data);
+  }
+
+  /** Append a track to a project's timeline, returning the updated data. */
+  addTrack(projectDataId: string, data: AddTrackData): Promise<ProjectData> {
+    return this.projectData.addTrack(projectDataId, data);
+  }
+
+  /**
+   * Remove a track (and its clips) from a project's timeline, returning the
+   * updated data.
+   */
+  removeTrack(projectDataId: string, trackId: string): Promise<ProjectData> {
+    return this.projectData.removeTrack(projectDataId, trackId);
   }
 
   /**

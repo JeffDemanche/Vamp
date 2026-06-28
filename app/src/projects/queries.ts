@@ -65,6 +65,39 @@ export const ProjectQuery = graphql(`
   }
 `);
 
+/**
+ * Adds a track to a project's timeline. Returns the project's updated
+ * `ProjectData` (with its full track list) so Apollo merges the new track into
+ * the cached `Project` query and the track pane/lanes refresh automatically.
+ */
+export const CreateTrackMutation = graphql(`
+  mutation CreateTrack($input: CreateTrackInput!) {
+    createTrack(input: $input) {
+      _id
+      tracks {
+        _id
+        name
+      }
+    }
+  }
+`);
+
+/**
+ * Removes a track (and any clips on it) from a project's timeline. Returns the
+ * updated `ProjectData` so the cached track list refreshes automatically.
+ */
+export const DeleteTrackMutation = graphql(`
+  mutation DeleteTrack($input: DeleteTrackInput!) {
+    deleteTrack(input: $input) {
+      _id
+      tracks {
+        _id
+        name
+      }
+    }
+  }
+`);
+
 /** Updates metadata stored directly on a project, currently its title. */
 export const UpdateProjectMetadataMutation = graphql(`
   mutation UpdateProjectMetadata($input: UpdateProjectMetadataInput!) {
