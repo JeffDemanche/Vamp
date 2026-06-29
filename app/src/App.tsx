@@ -4,6 +4,7 @@ import { createApolloClient } from "./apollo/client";
 import { RequireAuth } from "./auth/RequireAuth";
 import { LandingView } from "./components/views/LandingView";
 import { LoginView } from "./components/views/LoginView";
+import { LogoutView } from "./components/views/LogoutView";
 import { ProjectView } from "./components/views/ProjectView";
 import { RegisterView } from "./components/views/RegisterView";
 import { UserHomeView } from "./components/views/UserHomeView";
@@ -18,6 +19,7 @@ export function App() {
           <Route path="/" element={<LandingView />} />
           <Route path="/login" element={<LoginView />} />
           <Route path="/register" element={<RegisterView />} />
+          <Route path="/logout" element={<LogoutView />} />
           <Route
             path="/home"
             element={

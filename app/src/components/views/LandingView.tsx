@@ -1,6 +1,7 @@
 import { useQuery } from "@apollo/client/react";
-import { Loader2, LogIn, UserPlus } from "lucide-react";
+import { ArrowRight, Loader2, LogIn, LogOut, UserPlus } from "lucide-react";
 import { Link } from "react-router-dom";
+import { MeQuery } from "@/auth/queries";
 import { Button } from "@/components/primitives/button";
 import { graphql } from "@/generated";
 
@@ -16,6 +17,8 @@ export const UsersQuery = graphql(`
 
 export function LandingView() {
   const { data, loading, error } = useQuery(UsersQuery);
+  const { data: meData } = useQuery(MeQuery);
+  const isSignedIn = Boolean(meData?.me);
 
   return (
     <div
@@ -28,18 +31,37 @@ export function LandingView() {
           <p className="mt-1 text-muted-foreground">Collaborative music-making</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button asChild variant="ghost">
-            <Link to="/login">
-              <LogIn aria-hidden />
-              Log in
-            </Link>
-          </Button>
-          <Button asChild>
-            <Link to="/register">
-              <UserPlus aria-hidden />
-              Sign up
-            </Link>
-          </Button>
+          {isSignedIn ? (
+            <>
+              <Button asChild>
+                <Link to="/home">
+                  Go to your Vamps
+                  <ArrowRight aria-hidden />
+                </Link>
+              </Button>
+              <Button asChild variant="ghost">
+                <Link to="/logout">
+                  <LogOut aria-hidden />
+                  Log out
+                </Link>
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button asChild variant="ghost">
+                <Link to="/login">
+                  <LogIn aria-hidden />
+                  Log in
+                </Link>
+              </Button>
+              <Button asChild>
+                <Link to="/register">
+                  <UserPlus aria-hidden />
+                  Sign up
+                </Link>
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
