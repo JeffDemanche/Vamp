@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test.describe("Home route", () => {
   test("renders the app shell at /", async ({ page }) => {
@@ -6,5 +6,6 @@ test.describe("Home route", () => {
 
     await expect(page.getByText("Vamp")).toBeVisible();
     await expect(page.getByText("Collaborative music-making")).toBeVisible();
+    await expect(page.getByText("No users yet.")).toBeVisible();
   });
 });

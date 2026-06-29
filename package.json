@@ -19,7 +19,8 @@
     "schema": "npm run schema --workspace server",
     "stack:up": "docker compose up -d",
     "stack:down": "docker compose down",
-    "stack:watch": "docker compose watch"
+    "stack:watch": "docker compose watch",
+    "test:e2e:stack": "VITE_GRAPHQL_URI=/graphql npm run build -w @vamp/app && npm run test:e2e:server -w @vamp/server"
   },
   "dependencies": {
     "@vamp/server": "*",

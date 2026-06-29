@@ -10,6 +10,7 @@
     "start": "node -r reflect-metadata dist/index.js",
     "schema": "ts-node --transpile-only -r reflect-metadata src/emit-schema.ts",
     "test": "jest --runInBand",
+    "test:e2e:server": "ts-node --transpile-only -r reflect-metadata test-e2e/server.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

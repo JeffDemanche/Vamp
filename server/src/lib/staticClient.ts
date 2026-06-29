@@ -4,7 +4,7 @@ import express, { type Express } from "express";
 import { config } from "../config";
 
 /** Request path prefixes owned by the API; never handed to the SPA fallback. */
-const API_PREFIXES = ["/graphql", "/audio", "/health"];
+const API_PREFIXES = ["/graphql", "/audio", "/health", "/__e2e__"];
 
 /**
  * Resolve the directory containing the built SPA (`index.html` + assets).
