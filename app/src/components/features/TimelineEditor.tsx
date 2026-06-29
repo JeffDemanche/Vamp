@@ -4,7 +4,7 @@ import {
   useAudioEngineTimecode,
 } from "@/audio/AudioEngineProvider"
 import { Timeline } from "@/components/composites/timeline"
-import { RecordingTransportController } from "@/components/features/RecordingTransportController"
+import { RecordingController } from "@/components/features/RecordingController"
 import { TimelineToolbar } from "@/components/features/TimelineToolbar"
 import { TrackLanes } from "@/components/features/TrackLanes"
 import { useTimelinePlayback, useTimelineViewport } from "@/state/timeline"
@@ -43,18 +43,20 @@ function TimelineEditorInner({ projectId }: { projectId: string }) {
  * Entry point for the project editor's timeline surface. Expects to be rendered
  * inside `EditorProvider` (shared jotai scope) and owns an `AudioEngineProvider`
  * (one engine per editor), then stacks the playback `TimelineToolbar` above the
- * timeline. `RecordingTransportController` stops recording when playback ends.
+ * timeline. The `RecordingController` drives the recording lifecycle (mic access,
+ * capture, and clip creation) and provides the toolbar's record controls.
  */
 function TimelineEditor({ projectId }: { projectId: string }) {
   return (
     <AudioEngineProvider>
-      <RecordingTransportController />
-      <div className="flex h-full flex-col">
-        <TimelineToolbar />
-        <div className="min-h-0 flex-1">
-          <TimelineEditorInner projectId={projectId} />
+      <RecordingController projectId={projectId}>
+        <div className="flex h-full flex-col">
+          <TimelineToolbar />
+          <div className="min-h-0 flex-1">
+            <TimelineEditorInner projectId={projectId} />
+          </div>
         </div>
-      </div>
+      </RecordingController>
     </AudioEngineProvider>
   )
 }

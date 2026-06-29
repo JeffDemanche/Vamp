@@ -106,12 +106,50 @@ export type PlayingListener = (playing: boolean) => void;
 /** Creates the `AudioContext` the engine drives. Injectable for testing. */
 export type AudioContextFactory = () => AudioContext;
 
+/**
+ * Acquires the microphone `MediaStream` to record from. Defaults to
+ * `getUserMedia({ audio: true })`; injectable for testing. Rejects (e.g.
+ * `NotAllowedError`/`NotFoundError`) when access is denied or unavailable — the
+ * caller surfaces that to the user.
+ */
+export type MediaStreamProvider = () => Promise<MediaStream>;
+
+/** Creates the `MediaRecorder` used to capture a take. Injectable for testing. */
+export type MediaRecorderFactory = (
+  stream: MediaStream,
+  options?: MediaRecorderOptions,
+) => MediaRecorder;
+
+/**
+ * A finished recording plus the metadata needed to place it on the timeline.
+ * `startSample`/`durationSamples` are in timeline samples (the engine's
+ * `sampleRate`), anchored to the audio clock at capture start/stop so the clip
+ * lines up with where playback was when recording ran.
+ */
+export type RecordingResult = {
+  /** The recorded audio, container/codec per {@link RecordingResult.contentType}. */
+  blob: Blob;
+  /** MIME type of `blob` (e.g. `audio/webm`). */
+  contentType: string;
+  /** Timeline sample the first recorded frame corresponds to. */
+  startSample: number;
+  /** Recording length, in timeline samples. */
+  durationSamples: number;
+};
+
 export type AudioEngineOptions = {
   /**
    * Factory for the underlying `AudioContext`. Defaults to the browser's
    * `AudioContext` (falling back to the legacy `webkitAudioContext`).
    */
   contextFactory?: AudioContextFactory;
+  /**
+   * Acquires the microphone stream for recording. Defaults to
+   * `getUserMedia({ audio: true })`.
+   */
+  mediaStreamProvider?: MediaStreamProvider;
+  /** Creates the `MediaRecorder` used to capture. Defaults to `new MediaRecorder`. */
+  mediaRecorderFactory?: MediaRecorderFactory;
 };
 
 const EMPTY_STATE: AudioEngineState = {
@@ -133,8 +171,43 @@ const defaultContextFactory: AudioContextFactory = () => {
   return new Ctor();
 };
 
+const defaultMediaStreamProvider: MediaStreamProvider = () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Microphone capture is not supported in this browser.");
+  }
+  return navigator.mediaDevices.getUserMedia({ audio: true });
+};
+
+const defaultMediaRecorderFactory: MediaRecorderFactory = (stream, options) =>
+  new MediaRecorder(stream, options);
+
+/**
+ * Candidate recording container/codecs in preference order. We let the browser
+ * pick the first it supports (Chrome/Firefox favor WebM/Opus, Safari MP4); the
+ * resulting MIME type rides along on the upload so the file can be decoded for
+ * playback later.
+ */
+const RECORDING_MIME_TYPES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/ogg;codecs=opus",
+  "audio/mp4",
+];
+
+function pickRecordingMimeType(): string | undefined {
+  if (
+    typeof MediaRecorder === "undefined" ||
+    typeof MediaRecorder.isTypeSupported !== "function"
+  ) {
+    return undefined;
+  }
+  return RECORDING_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
+}
+
 export class AudioEngine {
   private readonly contextFactory: AudioContextFactory;
+  private readonly mediaStreamProvider: MediaStreamProvider;
+  private readonly mediaRecorderFactory: MediaRecorderFactory;
 
   /** Decoded audio files, keyed by audio id. The "audio files in memory". */
   private readonly audioBuffers = new Map<AudioId, AudioBuffer>();
@@ -170,8 +243,25 @@ export class AudioEngine {
 
   private readonly listeners = new Set<PlayingListener>();
 
+  // --- Recording ----------------------------------------------------------
+
+  /** Active recorder while capturing a take, else `null`. */
+  private mediaRecorder: MediaRecorder | null = null;
+  /** Microphone stream backing the active recorder; tracks are stopped on cleanup. */
+  private recordingStream: MediaStream | null = null;
+  /** Captured data chunks, assembled into the result blob on stop. */
+  private recordedChunks: Blob[] = [];
+  /** Audio-clock time (seconds) when capture began — the anchor for duration. */
+  private recordStartContextTime = 0;
+  /** Timeline sample the first recorded frame corresponds to. */
+  private recordStartSample = 0;
+
   constructor(options: AudioEngineOptions = {}) {
     this.contextFactory = options.contextFactory ?? defaultContextFactory;
+    this.mediaStreamProvider =
+      options.mediaStreamProvider ?? defaultMediaStreamProvider;
+    this.mediaRecorderFactory =
+      options.mediaRecorderFactory ?? defaultMediaRecorderFactory;
   }
 
   // --- Audio file store ---------------------------------------------------
@@ -249,6 +339,120 @@ export class AudioEngine {
     this.notify();
   }
 
+  // --- Recording ----------------------------------------------------------
+
+  /**
+   * Acquire the microphone and begin capturing a take. Resolves only once the
+   * recorder has actually started, with the timeline `startSample` the first
+   * captured frame maps to — so callers can flip UI/record state *after* audio
+   * is truly flowing (no dropped lead-in). Anchors the take to the audio clock
+   * at that instant so {@link stopRecording} can report an aligned duration.
+   *
+   * Rejects if mic access is denied/unavailable (the provider throws) or a
+   * recording is already in progress.
+   */
+  async startRecording(): Promise<{ startSample: number }> {
+    if (this.mediaRecorder) {
+      throw new Error("A recording is already in progress.");
+    }
+    const ctx = this.ensureContext();
+    const stream = await this.mediaStreamProvider();
+    this.recordingStream = stream;
+
+    const mimeType = pickRecordingMimeType();
+    let recorder: MediaRecorder;
+    try {
+      recorder = this.mediaRecorderFactory(
+        stream,
+        mimeType ? { mimeType } : undefined,
+      );
+    } catch (err) {
+      this.cleanupRecording();
+      throw err;
+    }
+
+    this.mediaRecorder = recorder;
+    this.recordedChunks = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) this.recordedChunks.push(event.data);
+    };
+
+    return new Promise<{ startSample: number }>((resolve, reject) => {
+      recorder.onstart = () => {
+        // Anchor to the audio clock the instant capture truly begins.
+        this.recordStartContextTime = ctx.currentTime;
+        this.recordStartSample = this.timecode;
+        resolve({ startSample: Math.round(this.recordStartSample) });
+      };
+      recorder.onerror = (event) => {
+        this.cleanupRecording();
+        reject(recorderError(event));
+      };
+      try {
+        recorder.start();
+      } catch (err) {
+        this.cleanupRecording();
+        reject(err);
+      }
+    });
+  }
+
+  /**
+   * Stop the active recording and resolve with the captured audio plus its
+   * timeline placement ({@link RecordingResult}). The duration is measured on
+   * the audio clock from capture start to this call, converted to timeline
+   * samples via the current `sampleRate`, so the resulting clip spans exactly
+   * the stretch of timeline that played while recording.
+   *
+   * Rejects if no recording is in progress.
+   */
+  async stopRecording(): Promise<RecordingResult> {
+    const recorder = this.mediaRecorder;
+    const ctx = this.context;
+    if (!recorder || !ctx) {
+      throw new Error("No recording is in progress.");
+    }
+
+    const elapsedSeconds = Math.max(0, ctx.currentTime - this.recordStartContextTime);
+    const durationSamples = Math.round(elapsedSeconds * this.state.sampleRate);
+    const startSample = Math.round(this.recordStartSample);
+
+    return new Promise<RecordingResult>((resolve, reject) => {
+      recorder.onstop = () => {
+        const contentType =
+          recorder.mimeType || this.recordedChunks[0]?.type || "audio/webm";
+        const blob = new Blob(this.recordedChunks, { type: contentType });
+        this.cleanupRecording();
+        resolve({ blob, contentType, startSample, durationSamples });
+      };
+      recorder.onerror = (event) => {
+        this.cleanupRecording();
+        reject(recorderError(event));
+      };
+      try {
+        recorder.stop();
+      } catch (err) {
+        this.cleanupRecording();
+        reject(err);
+      }
+    });
+  }
+
+  /** Whether the engine is currently capturing a recording. */
+  get isRecording(): boolean {
+    return this.mediaRecorder !== null;
+  }
+
+  /** Stop the recorder (if any) and release the microphone stream. */
+  private cleanupRecording(): void {
+    if (this.recordingStream) {
+      for (const track of this.recordingStream.getTracks()) track.stop();
+      this.recordingStream = null;
+    }
+    this.mediaRecorder = null;
+    this.recordedChunks = [];
+  }
+
   // --- Reported state -----------------------------------------------------
 
   /** Whether playback is currently in flight. */
@@ -287,6 +491,7 @@ export class AudioEngine {
   /** Tear everything down and release the audio context. */
   dispose(): void {
     this.teardownPlayback();
+    this.cleanupRecording();
     this.playing = false;
     this.audioBuffers.clear();
     this.listeners.clear();
@@ -393,6 +598,12 @@ export class AudioEngine {
   private notify(): void {
     for (const listener of this.listeners) listener(this.playing);
   }
+}
+
+/** Extract a meaningful error from a `MediaRecorder` `error` event. */
+function recorderError(event: Event): Error {
+  const err = (event as unknown as { error?: DOMException }).error;
+  return err ?? new Error("Recording failed.");
 }
 
 function deriveEvents(clips: AudioEngineClip[]): AudioEvent[] {

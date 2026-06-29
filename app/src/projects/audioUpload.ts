@@ -1,5 +1,9 @@
 import type { ApolloClient } from "@apollo/client";
-import { CreateAudioUploadMutation, CreateClipMutation } from "./queries";
+import {
+  CreateAudioUploadMutation,
+  CreateClipMutation,
+  ProjectQuery,
+} from "./queries";
 
 /** Where on the timeline (and into the audio) a new clip should land. */
 export interface NewClipPlacement {
@@ -64,6 +68,32 @@ export async function uploadAudioAndCreateClip(
         duration: placement.duration,
         audioOffset: placement.audioOffset ?? 0,
       },
+    },
+    // Append the new clip into the cached `ProjectQuery` so the timeline lanes
+    // render it immediately, without refetching the whole project.
+    update: (cache, { data }) => {
+      const created = data?.createClip;
+      if (!created) return;
+      cache.updateQuery(
+        { query: ProjectQuery, variables: { id: placement.projectId } },
+        (existing) => {
+          if (!existing?.project) return existing;
+          const clips = existing.project.projectData.clips;
+          if (clips.some((existingClip) => existingClip._id === created._id)) {
+            return existing;
+          }
+          return {
+            ...existing,
+            project: {
+              ...existing.project,
+              projectData: {
+                ...existing.project.projectData,
+                clips: [...clips, created],
+              },
+            },
+          };
+        },
+      );
     },
   });
 

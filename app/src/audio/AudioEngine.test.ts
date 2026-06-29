@@ -76,6 +76,56 @@ function makeEngine() {
   return { ctx, engine };
 }
 
+/**
+ * Minimal `MediaRecorder` stand-in: jsdom has none. Tests drive its lifecycle
+ * (`start`/`stop`) and fire the matching events so the engine's recording
+ * promises resolve like they would in a browser.
+ */
+class FakeMediaRecorder {
+  mimeType: string;
+  onstart: (() => void) | null = null;
+  onstop: (() => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  ondataavailable: ((event: { data: Blob }) => void) | null = null;
+  started = false;
+  stopped = false;
+
+  constructor(
+    public stream: MediaStream,
+    options?: MediaRecorderOptions,
+  ) {
+    this.mimeType = options?.mimeType ?? "";
+  }
+
+  start() {
+    this.started = true;
+    this.onstart?.();
+  }
+
+  stop() {
+    this.stopped = true;
+    this.ondataavailable?.({ data: new Blob(["audio"], { type: "audio/webm" }) });
+    this.onstop?.();
+  }
+}
+
+function makeRecordingEngine() {
+  const ctx = new FakeAudioContext();
+  const tracks = [{ stop: jest.fn() }];
+  const stream = { getTracks: () => tracks } as unknown as MediaStream;
+  const recorders: FakeMediaRecorder[] = [];
+  const engine = new AudioEngine({
+    contextFactory: () => ctx as unknown as AudioContext,
+    mediaStreamProvider: () => Promise.resolve(stream),
+    mediaRecorderFactory: (s, options) => {
+      const recorder = new FakeMediaRecorder(s, options);
+      recorders.push(recorder);
+      return recorder as unknown as MediaRecorder;
+    },
+  });
+  return { ctx, engine, recorders, tracks };
+}
+
 function stateWith(overrides: Partial<AudioEngineState> = {}): AudioEngineState {
   return {
     clips: [],
@@ -300,6 +350,79 @@ describe("AudioEngine", () => {
     const { engine } = makeEngine();
     await engine.loadAudio("a1", new ArrayBuffer(8));
     expect(engine.hasAudio("a1")).toBe(true);
+  });
+
+  it("anchors a recording's startSample to the current timecode", async () => {
+    const { engine } = makeRecordingEngine();
+    engine.update(stateWith({ playStart: 5_000 }));
+
+    const { startSample } = await engine.startRecording();
+
+    // While stopped the timecode is cued to playStart, so that's the anchor.
+    expect(startSample).toBe(5_000);
+    expect(engine.isRecording).toBe(true);
+  });
+
+  it("captures the live playhead as startSample when recording while playing", async () => {
+    const { ctx, engine } = makeRecordingEngine();
+    engine.update(stateWith({ playStart: 0 }));
+    engine.play();
+    ctx.currentTime += 1; // one second elapsed → SAMPLE_RATE samples
+
+    const { startSample } = await engine.startRecording();
+
+    expect(startSample).toBeCloseTo(SAMPLE_RATE);
+  });
+
+  it("reports duration in timeline samples from the audio clock on stop", async () => {
+    const { ctx, engine } = makeRecordingEngine();
+    engine.update(stateWith({ playStart: 1_000 }));
+
+    await engine.startRecording();
+    ctx.currentTime += 2; // two seconds of capture
+    const result = await engine.stopRecording();
+
+    expect(result.startSample).toBe(1_000);
+    expect(result.durationSamples).toBeCloseTo(2 * SAMPLE_RATE);
+    expect(result.blob.size).toBeGreaterThan(0);
+    expect(result.contentType).toBeTruthy();
+    expect(engine.isRecording).toBe(false);
+  });
+
+  it("releases the microphone tracks when a recording stops", async () => {
+    const { ctx, engine, tracks } = makeRecordingEngine();
+    engine.update(stateWith());
+
+    await engine.startRecording();
+    ctx.currentTime += 1;
+    await engine.stopRecording();
+
+    expect(tracks[0].stop).toHaveBeenCalled();
+  });
+
+  it("rejects starting a second recording while one is in progress", async () => {
+    const { engine } = makeRecordingEngine();
+    engine.update(stateWith());
+    await engine.startRecording();
+    await expect(engine.startRecording()).rejects.toThrow(/already in progress/);
+  });
+
+  it("rejects stopRecording when nothing is being captured", async () => {
+    const { engine } = makeRecordingEngine();
+    engine.update(stateWith());
+    await expect(engine.stopRecording()).rejects.toThrow(/No recording/);
+  });
+
+  it("propagates microphone-acquisition failures from startRecording", async () => {
+    const ctx = new FakeAudioContext();
+    const engine = new AudioEngine({
+      contextFactory: () => ctx as unknown as AudioContext,
+      mediaStreamProvider: () =>
+        Promise.reject(new DOMException("denied", "NotAllowedError")),
+    });
+    engine.update(stateWith());
+    await expect(engine.startRecording()).rejects.toThrow(/denied/);
+    expect(engine.isRecording).toBe(false);
   });
 
   it("releases the context on dispose", () => {

@@ -1,15 +1,12 @@
-import { Circle, Play, Repeat, Square } from "lucide-react"
+import { AlertCircle, Circle, Play, Repeat, Square } from "lucide-react"
 
 import {
   useAudioEngine,
   useAudioEnginePlaying,
 } from "@/audio/AudioEngineProvider"
 import { Button } from "@/components/primitives/button"
-import {
-  useRecording,
-  useSelectedTrack,
-  useTimelinePlayback,
-} from "@/state/timeline"
+import { useRecordingControls } from "@/components/features/RecordingController"
+import { useTimelinePlayback } from "@/state/timeline"
 
 /**
  * The toolbar above the timeline holding playback and timeline-wide controls.
@@ -19,25 +16,26 @@ import {
  *   the engine reflects, looping playback back to `playStart` at `playEnd`);
  * - a **play/stop** button that starts/stops the `AudioEngine` and reflects its
  *   playing state;
- * - a **record** button that arms recording on the selected track and starts
- *   playback if stopped (`startSample` is the playback start when stopped, or
- *   the live playhead when already playing). Recording ends when playback stops.
+ * - a **record** button that hands off to the `RecordingController`
+ *   (`beginRecording`): it acquires the microphone and starts capturing before
+ *   recording state flips on. It is disabled until a track is selected, reflects
+ *   blocked mic access, and any permission/capture error is surfaced beside the
+ *   toolbar with a retry.
  *
- * Rendered inside the editor's jotai `Provider` and `AudioEngineProvider`.
+ * Rendered inside the editor's jotai `Provider`, `AudioEngineProvider`, and
+ * `RecordingController`.
  */
 export function TimelineToolbar() {
   const engine = useAudioEngine()
   const playing = useAudioEnginePlaying()
-  const { loop, toggleLoop, playStart } = useTimelinePlayback()
-  const { selectedTrackId } = useSelectedTrack()
-  const { isRecording, startRecording } = useRecording()
+  const { loop, toggleLoop } = useTimelinePlayback()
+  const { isRecording, canRecord, permission, error, beginRecording } =
+    useRecordingControls()
 
-  const handleRecord = () => {
-    if (isRecording || !selectedTrackId) return
-    const startSample = playing ? engine.timecode : playStart
-    startRecording(selectedTrackId, startSample)
-    if (!playing) engine.play()
-  }
+  const blocked = permission === "denied"
+  const recordLabel = blocked
+    ? "Microphone blocked — click to retry"
+    : "Record"
 
   return (
     <div
@@ -61,9 +59,10 @@ export function TimelineToolbar() {
         type="button"
         size="sm"
         variant={isRecording ? "destructive" : "outline"}
-        aria-label="Record"
-        disabled={!selectedTrackId || isRecording}
-        onClick={handleRecord}
+        aria-label={recordLabel}
+        title={recordLabel}
+        disabled={!canRecord || isRecording}
+        onClick={beginRecording}
       >
         <Circle
           className={isRecording ? "fill-current" : undefined}
@@ -83,6 +82,16 @@ export function TimelineToolbar() {
         <Repeat aria-hidden />
         Loop
       </Button>
+
+      {error && (
+        <div
+          role="alert"
+          className="ml-2 flex items-center gap-1.5 text-xs text-destructive"
+        >
+          <AlertCircle className="size-3.5 shrink-0" aria-hidden />
+          <span>{error}</span>
+        </div>
+      )}
     </div>
   )
 }

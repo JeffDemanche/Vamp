@@ -52,6 +52,19 @@ export const ProjectQuery = graphql(`
           _id
           name
         }
+        clips {
+          _id
+          start
+          duration
+          audioOffset
+          track
+          audio {
+            _id
+            filename
+            uploadStatus
+            downloadUrl
+          }
+        }
       }
     }
     projectUser(projectId: $id) {
@@ -173,6 +186,7 @@ export const CreateClipMutation = graphql(`
       track
       audio {
         _id
+        filename
         uploadStatus
         downloadUrl
       }
