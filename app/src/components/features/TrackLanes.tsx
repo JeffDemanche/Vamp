@@ -1,6 +1,7 @@
 import { useQuery } from "@apollo/client/react"
 
 import { Swimlane } from "@/components/composites/swimlane"
+import { RecordingClip } from "@/components/features/RecordingClip"
 import { ProjectQuery } from "@/projects/queries"
 import { useTimelineViewport } from "@/state/timeline"
 
@@ -9,7 +10,9 @@ import { useTimelineViewport } from "@/state/timeline"
  * `TrackInfo` rows in the `TrackPane` across the way. Reads the tracks from the
  * cached `project` query (already fetched by `ProjectView`) and the visible
  * sample range from the jotai timeline viewport, handing each lane the current
- * `viewportStart`/`viewportEnd` so lane content tracks pan/zoom.
+ * `viewportStart`/`viewportEnd` so lane content tracks pan/zoom. Each lane
+ * hosts a `RecordingClip`, which draws the live take only on the track that is
+ * actively recording.
  *
  * Mounted inside `TimelineEditor`'s jotai `Provider` as the `Timeline`'s
  * children, where the children band already begins below the ruler header; the
@@ -27,7 +30,9 @@ export function TrackLanes({ projectId }: { projectId: string }) {
   return (
     <div className="flex flex-col gap-2 pt-2">
       {tracks.map((track) => (
-        <Swimlane key={track._id} viewportStart={start} viewportEnd={end} />
+        <Swimlane key={track._id} viewportStart={start} viewportEnd={end}>
+          <RecordingClip trackId={track._id} />
+        </Swimlane>
       ))}
     </div>
   )
