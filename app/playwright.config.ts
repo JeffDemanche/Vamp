@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+/** Distinct from the dev server (:4000). Use 127.0.0.1 — not `localhost` — so Node
+ *  doesn't resolve to ::1 while the e2e server listens on IPv4 only. */
+const E2E_HOST = "127.0.0.1";
 const E2E_PORT = 4001;
+const E2E_ORIGIN = `http://${E2E_HOST}:${E2E_PORT}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -11,7 +15,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: "html",
   use: {
-    baseURL: `http://localhost:${E2E_PORT}`,
+    baseURL: E2E_ORIGIN,
     trace: "on-first-retry",
   },
   projects: [
@@ -21,24 +25,20 @@ export default defineConfig({
     },
   ],
   // Builds the client, then boots the real API + SPA on a single origin backed
-  // by an ephemeral in-memory MongoDB (see server/test-e2e/server.ts).
+  // by an ephemeral in-memory MongoDB (see server/test-e2e/server.ts, which owns
+  // the rest of the e2e env defaults). We only pass PORT so the server binds the
+  // exact port Playwright targets below.
   webServer: {
     command: "npm run test:e2e:stack",
     cwd: "..",
-    url: `http://localhost:${E2E_PORT}/health`,
+    url: `${E2E_ORIGIN}/health`,
     // Always boot a fresh stack so we never accidentally reuse the dev Docker
     // server (:4000) or a stale build with the wrong VITE_GRAPHQL_URI baked in.
     reuseExistingServer: false,
     timeout: 180_000,
     env: {
       PORT: String(E2E_PORT),
-      NODE_ENV: "test",
-      SERVE_CLIENT: "true",
-      AUDIO_STORAGE_DRIVER: "local",
-      AUDIO_LOCAL_DIR: ".audio-uploads-e2e",
-      PUBLIC_BASE_URL: `http://localhost:${E2E_PORT}`,
-      E2E: "1",
-      VITE_GRAPHQL_URI: "/graphql",
+      HOST: E2E_HOST,
     },
   },
 });

@@ -7,6 +7,7 @@ import {
 import { Button } from "@/components/primitives/button"
 import { useRecordingControls } from "@/components/features/RecordingController"
 import { useTimelinePlayback } from "@/state/timeline"
+import { testIds } from "@/testIds"
 
 /**
  * The toolbar above the timeline holding playback and timeline-wide controls.
@@ -39,7 +40,7 @@ export function TimelineToolbar() {
 
   return (
     <div
-      data-testid="timeline-toolbar"
+      data-testid={testIds.TimelineToolbar.root}
       role="toolbar"
       aria-label="Timeline playback controls"
       className="flex h-11 shrink-0 items-center gap-1"

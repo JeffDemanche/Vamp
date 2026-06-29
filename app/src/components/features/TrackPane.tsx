@@ -13,6 +13,7 @@ import {
   ProjectQuery,
 } from "@/projects/queries"
 import { useSelectedTrack } from "@/state/timeline"
+import { testIds } from "@/testIds"
 
 /**
  * The pane to the left of the timeline listing the project's tracks. Reads the
@@ -35,7 +36,7 @@ export function TrackPane({ projectId }: { projectId: string }) {
 
   return (
     <div
-      data-testid="track-pane"
+      data-testid={testIds.TrackPane.root}
       className="flex h-full w-56 shrink-0 flex-col gap-2 overflow-y-auto"
     >
       {/* Reserve the timeline's toolbar + header band so rows align with track lanes. */}

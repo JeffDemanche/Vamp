@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { RegisterMutation } from "@/auth/queries";
+import { testIds } from "@/testIds";
 import { LoginView } from "./LoginView";
 import { RegisterView } from "./RegisterView";
 
@@ -56,7 +57,9 @@ describe("RegisterView", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
-    expect(await screen.findByTestId("registered-notice")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId(testIds.LoginView.registeredNotice),
+    ).toBeInTheDocument();
   });
 
   it("surfaces a server error (e.g. duplicate email)", async () => {

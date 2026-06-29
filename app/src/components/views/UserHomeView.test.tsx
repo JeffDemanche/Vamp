@@ -4,6 +4,7 @@ import type { ComponentProps } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { MeQuery } from "@/auth/queries";
 import { ProjectsByUserQuery } from "@/projects/queries";
+import { testIds } from "@/testIds";
 import { UserHomeView } from "./UserHomeView";
 
 type Mocks = ComponentProps<typeof MockedProvider>["mocks"];
@@ -66,6 +67,8 @@ describe("UserHomeView", () => {
       },
     ]);
 
-    expect(await screen.findByTestId("projects-empty")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId(testIds.ProjectsTable.empty),
+    ).toBeInTheDocument();
   });
 });

@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { MeQuery } from "@/auth/queries";
 import { Button } from "@/components/primitives/button";
 import { graphql } from "@/generated";
+import { testIds } from "@/testIds";
 
 export const UsersQuery = graphql(`
   query Users {
@@ -22,7 +23,7 @@ export function LandingView() {
 
   return (
     <div
-      data-testid="landing-view"
+      data-testid={testIds.LandingView.root}
       className="min-h-screen bg-background px-6 py-8 text-foreground"
     >
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
@@ -77,13 +78,13 @@ export function LandingView() {
       )}
 
       {error && (
-        <p data-testid="error" className="text-destructive">
+        <p data-testid={testIds.LandingView.error} className="text-destructive">
           Could not load users: {error.message}
         </p>
       )}
 
       {data && (
-        <ul data-testid="user-list" className="divide-y divide-border">
+        <ul data-testid={testIds.LandingView.userList} className="divide-y divide-border">
           {data.users.length === 0 ? (
             <li className="py-3 text-muted-foreground">No users yet.</li>
           ) : (

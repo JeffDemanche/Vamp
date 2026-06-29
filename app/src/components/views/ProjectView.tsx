@@ -6,6 +6,7 @@ import { EditorProvider } from "@/components/features/EditorProvider";
 import { TimelineEditor } from "@/components/features/TimelineEditor";
 import { TrackPane } from "@/components/features/TrackPane";
 import { ProjectQuery } from "@/projects/queries";
+import { testIds } from "@/testIds";
 
 export function ProjectView() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -18,7 +19,7 @@ export function ProjectView() {
   if (loading) {
     return (
       <div
-        data-testid="project-view"
+        data-testid={testIds.ProjectView.root}
         className="flex min-h-screen items-center justify-center bg-background text-muted-foreground"
       >
         <div role="status" aria-label="Loading Vamp" className="flex items-center gap-2">
@@ -34,7 +35,7 @@ export function ProjectView() {
   if (error || !project) {
     return (
       <div
-        data-testid="project-view"
+        data-testid={testIds.ProjectView.root}
         className="flex min-h-screen items-center justify-center bg-background px-6 text-center text-foreground"
       >
         <div>
@@ -51,7 +52,7 @@ export function ProjectView() {
 
   return (
     <div
-      data-testid="project-view"
+      data-testid={testIds.ProjectView.root}
       className="flex h-screen flex-col bg-background px-6 py-8 text-foreground"
     >
       <header className="shrink-0">

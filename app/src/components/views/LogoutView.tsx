@@ -2,6 +2,7 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useLogout } from "@/auth/useLogout";
+import { testIds } from "@/testIds";
 
 /**
  * Route that ends the session as soon as it mounts, then sends the visitor back
@@ -24,7 +25,7 @@ export function LogoutView() {
 
   return (
     <div
-      data-testid="logout-view"
+      data-testid={testIds.LogoutView.root}
       role="status"
       aria-label="Signing you out"
       className="flex min-h-screen items-center justify-center bg-background text-muted-foreground"

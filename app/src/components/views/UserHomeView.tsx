@@ -6,6 +6,7 @@ import { ProjectsTable } from "@/components/features/ProjectsTable";
 import { Button } from "@/components/primitives/button";
 import { MeQuery } from "@/auth/queries";
 import { useLogout } from "@/auth/useLogout";
+import { testIds } from "@/testIds";
 
 export function UserHomeView() {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ export function UserHomeView() {
 
   return (
     <div
-      data-testid="user-home-view"
+      data-testid={testIds.UserHomeView.root}
       className="min-h-screen bg-background px-6 py-8 text-foreground"
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -53,7 +54,7 @@ export function UserHomeView() {
 
       <div className="mt-8">
         <div
-          data-testid="projects-toolbar"
+          data-testid={testIds.UserHomeView.projectsToolbar}
           className="flex flex-wrap items-center justify-end gap-2"
         >
           {userId && <CreateProjectButton ownerId={userId} />}
