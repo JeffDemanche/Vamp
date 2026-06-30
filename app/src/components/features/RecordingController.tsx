@@ -54,6 +54,27 @@ export function useRecordingControls(): RecordingControls {
   return controls
 }
 
+/** Timeline placement for a finished take — exported for unit tests. */
+export function clipPlacementFromRecording(result: {
+  durationSamples: number
+  loopLength?: number
+}): {
+  duration: number
+  mode: "FLAT" | "STACKED"
+  loopLength?: number
+} {
+  const { durationSamples, loopLength } = result
+  if (!loopLength) {
+    return { duration: durationSamples, mode: "FLAT" }
+  }
+  // A looped take is a stacked clip occupying one loop region once the first
+  // loop point is reached; if the transport stopped earlier, span only what was
+  // captured (still stacked — loopLength is stored on the audio for scheduling).
+  const duration =
+    durationSamples >= loopLength ? loopLength : durationSamples
+  return { duration, mode: "STACKED", loopLength }
+}
+
 /**
  * Owns the project editor's recording lifecycle and exposes it via
  * {@link useRecordingControls}. Replaces the old headless transport listener:
@@ -174,18 +195,15 @@ export function RecordingController({
       return
     }
     try {
+      const { duration, mode, loopLength } = clipPlacementFromRecording(result)
       await uploadAudioAndCreateClip(client, result.blob, {
         projectId,
         trackId: finishedRecording.trackId,
-        // A looped take is a stacked clip occupying exactly one loop region, so
-        // its timeline duration is the loop length (the recording itself spans
-        // several passes and is overlaid within that region); a non-looped take
-        // is a flat clip spanning the captured duration.
         start: result.startSample,
-        duration: result.loopLength ?? result.durationSamples,
+        duration,
         audioOffset: 0,
-        mode: result.loopLength ? "STACKED" : "FLAT",
-        loopLength: result.loopLength,
+        mode,
+        loopLength,
       })
     } catch (err) {
       logError("Failed to save the recording", err)

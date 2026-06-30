@@ -78,16 +78,26 @@ export function ClipWaveform({
 
   // One peaks array per stacked loop pass (just one for a flat clip), each
   // offset into the recording by that pass's buffer offset so the layers line
-  // up with the engine's stacked audio events.
+  // up with the engine's stacked audio events. When the clip is longer than
+  // the available audio, peaks and display width follow the audio length.
   const layers = React.useMemo(() => {
     if (!buffer) return null
     const stacked = mode === "STACKED" && loopLength != null && loopLength > 0
     const count = stacked
       ? stackedLayerCount(buffer.duration * sampleRate, loopLength)
       : 1
-    return Array.from({ length: count }, (_, k) =>
-      computeClipPeaks(buffer, audioOffset + k * (loopLength ?? 0), duration),
-    )
+    return Array.from({ length: count }, (_, k) => {
+      const offset = audioOffset + k * (loopLength ?? 0)
+      const audioSamples = Math.max(
+        0,
+        Math.min(duration, buffer.length - offset),
+      )
+      return {
+        peaks: computeClipPeaks(buffer, offset, audioSamples),
+        widthFraction: duration > 0 ? audioSamples / duration : 1,
+        seconds: audioSamples / sampleRate,
+      }
+    })
   }, [buffer, audioOffset, duration, mode, loopLength, sampleRate])
 
   // Split the base alpha across the stacked layers so their overlaid sum reads
@@ -104,19 +114,53 @@ export function ClipWaveform({
 
   if (!layers) return null
 
-  const seconds = duration / sampleRate
-
   if (layers.length === 1) {
-    return <Waveform peaks={layers[0]} duration={seconds} waveColor={waveColor} />
+    const layer = layers[0]
+    return (
+      <WaveformLayer
+        peaks={layer.peaks}
+        seconds={layer.seconds}
+        widthFraction={layer.widthFraction}
+        waveColor={waveColor}
+      />
+    )
   }
 
   return (
     <div className="relative h-full w-full">
-      {layers.map((peaks, k) => (
+      {layers.map((layer, k) => (
         <div key={k} className="absolute inset-0">
-          <Waveform peaks={peaks} duration={seconds} waveColor={waveColor} />
+          <WaveformLayer
+            peaks={layer.peaks}
+            seconds={layer.seconds}
+            widthFraction={layer.widthFraction}
+            waveColor={waveColor}
+          />
         </div>
       ))}
+    </div>
+  )
+}
+
+/** Renders peaks at the correct scale when clip duration exceeds audio length. */
+function WaveformLayer({
+  peaks,
+  seconds,
+  widthFraction,
+  waveColor,
+}: {
+  peaks: Float32Array
+  seconds: number
+  widthFraction: number
+  waveColor: string
+}) {
+  const body = (
+    <Waveform peaks={peaks} duration={seconds} waveColor={waveColor} />
+  )
+  if (widthFraction >= 1) return body
+  return (
+    <div className="h-full" style={{ width: `${widthFraction * 100}%` }}>
+      {body}
     </div>
   )
 }
