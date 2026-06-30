@@ -15,6 +15,21 @@ export function createApolloClient() {
       // authenticate the user (see the `me` query and auth mutations).
       credentials: "include",
     }),
-    cache: new InMemoryCache(),
+    cache: new InMemoryCache({
+      typePolicies: {
+        ProjectData: {
+          fields: {
+            // The server returns the complete `tracks`/`clips` arrays on every
+            // read and on mutations that change them (createTrack/deleteTrack,
+            // createClip), so the incoming list is always authoritative. Replace
+            // rather than merge — this also silences Apollo's "cache data may be
+            // lost when replacing the … field" warning, which fires when an
+            // array of normalized objects shrinks (e.g. deleting a track).
+            tracks: { merge: false },
+            clips: { merge: false },
+          },
+        },
+      },
+    }),
   });
 }

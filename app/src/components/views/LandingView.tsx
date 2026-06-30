@@ -1,8 +1,10 @@
 import { useQuery } from "@apollo/client/react";
-import { Loader2, LogIn, UserPlus } from "lucide-react";
+import { ArrowRight, Loader2, LogIn, LogOut, UserPlus } from "lucide-react";
 import { Link } from "react-router-dom";
+import { MeQuery } from "@/auth/queries";
 import { Button } from "@/components/primitives/button";
 import { graphql } from "@/generated";
+import { testIds } from "@/testIds";
 
 export const UsersQuery = graphql(`
   query Users {
@@ -16,10 +18,12 @@ export const UsersQuery = graphql(`
 
 export function LandingView() {
   const { data, loading, error } = useQuery(UsersQuery);
+  const { data: meData } = useQuery(MeQuery);
+  const isSignedIn = Boolean(meData?.me);
 
   return (
     <div
-      data-testid="landing-view"
+      data-testid={testIds.LandingView.root}
       className="min-h-screen bg-background px-6 py-8 text-foreground"
     >
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
@@ -28,18 +32,37 @@ export function LandingView() {
           <p className="mt-1 text-muted-foreground">Collaborative music-making</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button asChild variant="ghost">
-            <Link to="/login">
-              <LogIn aria-hidden />
-              Log in
-            </Link>
-          </Button>
-          <Button asChild>
-            <Link to="/register">
-              <UserPlus aria-hidden />
-              Sign up
-            </Link>
-          </Button>
+          {isSignedIn ? (
+            <>
+              <Button asChild>
+                <Link to="/home">
+                  Go to your Vamps
+                  <ArrowRight aria-hidden />
+                </Link>
+              </Button>
+              <Button asChild variant="ghost">
+                <Link to="/logout">
+                  <LogOut aria-hidden />
+                  Log out
+                </Link>
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button asChild variant="ghost">
+                <Link to="/login">
+                  <LogIn aria-hidden />
+                  Log in
+                </Link>
+              </Button>
+              <Button asChild>
+                <Link to="/register">
+                  <UserPlus aria-hidden />
+                  Sign up
+                </Link>
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -55,13 +78,13 @@ export function LandingView() {
       )}
 
       {error && (
-        <p data-testid="error" className="text-destructive">
+        <p data-testid={testIds.LandingView.error} className="text-destructive">
           Could not load users: {error.message}
         </p>
       )}
 
       {data && (
-        <ul data-testid="user-list" className="divide-y divide-border">
+        <ul data-testid={testIds.LandingView.userList} className="divide-y divide-border">
           {data.users.length === 0 ? (
             <li className="py-3 text-muted-foreground">No users yet.</li>
           ) : (

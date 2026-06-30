@@ -1,34 +1,82 @@
+import { useQuery } from "@apollo/client/react";
 import * as React from "react";
 
+import { ProjectQuery } from "@/projects/queries";
 import { useTimelinePlayback, useTimelineViewport } from "@/state/timeline";
-import { AudioEngine } from "./AudioEngine";
+import { ensureAudioLoaded } from "./audioLoader";
+import { AudioEngine, type AudioEngineState } from "./AudioEngine";
+import { filterReadyAudios, toAudioEngineClip } from "./clipMapping";
 
 /**
  * Owns a single {@link AudioEngine} instance scoped to one timeline editor and
- * keeps it in sync with the editor's jotai state. Must be rendered inside the
- * editor's jotai `Provider` (it reads the timeline atoms) so the engine resets
- * with the editor.
+ * keeps it in sync with the editor's jotai state and the project's content.
+ * Must be rendered inside the editor's jotai `Provider` (it reads the timeline
+ * atoms) so the engine resets with the editor.
  *
  * The engine is reflected — never read back into — from React: an effect pushes
- * the relevant editor state (sample rate plus the playback range/loop) into
- * `engine.update`, and components read transport state through the hooks below.
+ * the relevant editor state (clips, sample rate, playback range/loop) into
+ * `engine.update`. In parallel it downloads the project's whole audio library
+ * (`projectData.audios`, keyed by `ProjectAudio._id`) from each audio's
+ * `downloadUrl` into the engine's in-memory store, so clips can reference any
+ * of it without enumerating the timeline. Components read transport state
+ * through the hooks below.
  */
 
 const AudioEngineContext = React.createContext<AudioEngine | null>(null);
 
-export function AudioEngineProvider({ children }: { children: React.ReactNode }) {
+export function AudioEngineProvider({
+  projectId,
+  children,
+}: {
+  projectId: string;
+  children: React.ReactNode;
+}) {
   const [engine] = React.useState(() => new AudioEngine());
-
-  React.useEffect(() => () => engine.dispose(), [engine]);
+  const { data } = useQuery(ProjectQuery, { variables: { id: projectId } });
+  const clips = data?.project?.projectData.clips ?? [];
+  const audios = data?.project?.projectData.audios ?? [];
 
   const { sampleRate } = useTimelineViewport();
   const { playStart, playEnd, loop } = useTimelinePlayback();
 
+  const engineState = React.useMemo<AudioEngineState>(
+    () => ({
+      clips: clips
+        .map(toAudioEngineClip)
+        .filter((clip): clip is NonNullable<typeof clip> => clip !== null),
+      sampleRate,
+      playStart,
+      playEnd,
+      loop,
+    }),
+    [clips, sampleRate, playStart, playEnd, loop],
+  );
+
+  // Reflect clip/transport state immediately; download the project's audio
+  // library in the background and re-schedule once buffers land.
   React.useEffect(() => {
-    // No audio is loaded yet, so the engine has no clips to schedule; it still
-    // advances its timecode for the playhead. Clip→audio wiring lands later.
-    engine.update({ clips: [], sampleRate, playStart, playEnd, loop });
-  }, [engine, sampleRate, playStart, playEnd, loop]);
+    engine.update(engineState);
+
+    let cancelled = false;
+
+    void (async () => {
+      for (const audio of filterReadyAudios(audios)) {
+        try {
+          await ensureAudioLoaded(engine, audio);
+        } catch (err) {
+          console.error("Failed to load project audio", audio._id, err);
+        }
+        if (cancelled) return;
+      }
+      engine.update(engineState);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [engine, engineState, audios]);
+
+  React.useEffect(() => () => engine.dispose(), [engine]);
 
   return (
     <AudioEngineContext.Provider value={engine}>
@@ -44,6 +92,21 @@ export function useAudioEngine(): AudioEngine {
     throw new Error("useAudioEngine must be used within an AudioEngineProvider");
   }
   return engine;
+}
+
+/**
+ * The decoded {@link AudioBuffer} for an audio id, or `null` until the engine
+ * has downloaded and decoded it (the provider streams the project's audio in
+ * the background). Re-renders when the buffer lands, so clip waveforms can draw
+ * straight from the engine's in-memory bytes without re-fetching the file. Pass
+ * `null`/`undefined` for clips with no audio to skip the subscription.
+ */
+export function useAudioBuffer(audioId: string | null | undefined): AudioBuffer | null {
+  const engine = useAudioEngine();
+  return React.useSyncExternalStore(
+    (onChange) => engine.subscribeAudioStore(onChange),
+    () => (audioId ? engine.getAudioBuffer(audioId) ?? null : null),
+  );
 }
 
 /** Subscribe to the engine's playing state, re-rendering when it flips. */

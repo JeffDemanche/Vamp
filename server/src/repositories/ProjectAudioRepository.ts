@@ -31,6 +31,14 @@ export class ProjectAudioRepository {
     return ProjectAudioModel.findOne({ key }).lean<ProjectAudio>().exec();
   }
 
+  /** Every audio belonging to a project, oldest first. */
+  findByProject(projectId: string): Promise<ProjectAudio[]> {
+    return ProjectAudioModel.find({ project: projectId })
+      .sort({ createdAt: 1 })
+      .lean<ProjectAudio[]>()
+      .exec();
+  }
+
   async create(data: CreateProjectAudioData): Promise<ProjectAudio> {
     const doc = await ProjectAudioModel.create({
       _id: data._id,

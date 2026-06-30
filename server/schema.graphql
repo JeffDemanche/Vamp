@@ -3,6 +3,11 @@
 # !!!   DO NOT MODIFY THIS FILE BY YOURSELF   !!!
 # -----------------------------------------------
 
+input ArchiveClipsInput {
+  clipIds: [ID!]!
+  projectId: ID!
+}
+
 """Upload lifecycle of a ProjectAudio's underlying S3 object."""
 enum AudioUploadStatus {
   PENDING
@@ -35,10 +40,20 @@ input CreateProjectInput {
   title: String!
 }
 
+input CreateTrackInput {
+  name: String
+  projectId: ID!
+}
+
 """
 A date-time string at UTC, such as 2007-12-03T10:15:30Z, compliant with the `date-time` format outlined in section 5.6 of the RFC 3339 profile of the ISO 8601 standard for representation of dates and times using the Gregorian calendar.This scalar is serialized to a string in ISO 8601 format and parsed from a string in ISO 8601 format.
 """
 scalar DateTimeISO
+
+input DeleteTrackInput {
+  projectId: ID!
+  trackId: ID!
+}
 
 input LoginInput {
   email: String!
@@ -46,14 +61,18 @@ input LoginInput {
 }
 
 type Mutation {
+  archiveClips(input: ArchiveClipsInput!): ProjectData!
   createAudioUpload(input: CreateAudioUploadInput!): CreateAudioUploadPayload!
   createClip(input: CreateClipInput!): ProjectClip!
   createEmptyProject(ownerId: ID!): Project!
   createProject(input: CreateProjectInput!): Project!
+  createTrack(input: CreateTrackInput!): ProjectData!
+  deleteTrack(input: DeleteTrackInput!): ProjectData!
   login(input: LoginInput!): User!
   logout: Boolean!
   register(input: RegisterInput!): User!
   setProjectArchived(archived: Boolean!, id: ID!): Project!
+  updateClip(input: UpdateClipInput!): ProjectClip!
   updateProjectMetadata(input: UpdateProjectMetadataInput!): Project!
   updateProjectUserState(input: UpdateProjectUserStateInput!): ProjectUser!
 }
@@ -92,6 +111,7 @@ type ProjectClip {
 
 type ProjectData {
   _id: ID!
+  audios: [ProjectAudio!]!
   clips: [ProjectClip!]!
   createdAt: DateTimeISO!
   tracks: [ProjectTrack!]!
@@ -109,9 +129,23 @@ type ProjectUser {
   loop: Boolean!
   playEnd: Int!
   playStart: Int!
+  recording: ProjectUserRecording
+  selectedTrack: ID
   user: User!
   viewportEnd: Int!
   viewportStart: Int!
+}
+
+type ProjectUserRecording {
+  startSample: Int!
+  startedAt: DateTimeISO!
+  track: ID!
+}
+
+input ProjectUserRecordingInput {
+  startSample: Int!
+  startedAt: DateTimeISO!
+  track: ID!
 }
 
 type Query {
@@ -131,6 +165,13 @@ input RegisterInput {
   username: String!
 }
 
+input UpdateClipInput {
+  clipId: ID!
+  projectId: ID!
+  start: Int
+  track: ID
+}
+
 input UpdateProjectMetadataInput {
   id: ID!
   title: String
@@ -141,6 +182,8 @@ input UpdateProjectUserStateInput {
   playEnd: Int
   playStart: Int
   projectId: ID!
+  recording: ProjectUserRecordingInput
+  selectedTrack: ID
   viewportEnd: Int
   viewportStart: Int
 }

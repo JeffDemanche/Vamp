@@ -2,7 +2,9 @@ import type { ProjectClip } from "../entities/ProjectClip";
 import type { ProjectData } from "../entities/ProjectData";
 import type {
   AddClipData,
+  AddTrackData,
   ProjectDataRepository,
+  UpdateClipData,
 } from "../repositories/ProjectDataRepository";
 
 /**
@@ -22,11 +24,47 @@ export class ProjectDataService {
   }
 
   /**
-   * Provision a new {@link ProjectData}, seeded with a single starter track
-   * owned by `creatorId` (the project's creator).
+   * Move a clip on a project's timeline (its `start` and/or the `track` it lives
+   * on), returning the updated clip. Only the provided fields are changed.
    */
-  create(creatorId: string): Promise<ProjectData> {
+  updateClip(
+    projectDataId: string,
+    clipId: string,
+    data: UpdateClipData,
+  ): Promise<ProjectClip> {
+    return this.projectData.updateClip(projectDataId, clipId, data);
+  }
+
+  /**
+   * Archive (soft-remove) the clips with the given ids from a project's
+   * timeline, returning the updated data. Archived clips are retained in
+   * storage but hidden from the exposed timeline.
+   */
+  archiveClips(projectDataId: string, clipIds: string[]): Promise<ProjectData> {
+    return this.projectData.archiveClips(projectDataId, clipIds);
+  }
+
+  /** Append a track to a project's timeline, returning the updated data. */
+  addTrack(projectDataId: string, data: AddTrackData): Promise<ProjectData> {
+    return this.projectData.addTrack(projectDataId, data);
+  }
+
+  /**
+   * Remove a track (and its clips) from a project's timeline, returning the
+   * updated data.
+   */
+  removeTrack(projectDataId: string, trackId: string): Promise<ProjectData> {
+    return this.projectData.removeTrack(projectDataId, trackId);
+  }
+
+  /**
+   * Provision a new {@link ProjectData} for `projectId`, seeded with a single
+   * starter track owned by `creatorId` (the project's creator). The owning
+   * project id is stored as a back-reference so its audios can be resolved.
+   */
+  create(projectId: string, creatorId: string): Promise<ProjectData> {
     return this.projectData.create({
+      project: projectId,
       tracks: [{ name: "Track 1", creator: creatorId }],
     });
   }

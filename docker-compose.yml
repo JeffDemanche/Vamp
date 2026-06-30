@@ -54,12 +54,15 @@ services:
           path: ./package-lock.json
 
   # Vite dev server with HMR. Runs codegen once on boot so the generated GraphQL
-  # documents exist before Vite resolves imports.
+  # documents exist before Vite resolves imports, then keeps `codegen --watch`
+  # running in the background so edits to the schema or `graphql(...)` operations
+  # regenerate the typed documents live (no container restart needed). Vite's HMR
+  # then picks up the regenerated `src/generated/` files.
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    command: sh -c "npm run codegen && npm run dev:app"
+    command: sh -c "npm run codegen && (npm run codegen:watch &) && npm run dev:app"
     restart: unless-stopped
     ports:
       - "5173:5173"

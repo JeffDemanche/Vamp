@@ -8,6 +8,6 @@
     "strictPropertyInitialization": false,
     "noEmit": true
   },
-  "include": ["src", "test"],
+  "include": ["src", "test", "test-e2e"],
   "exclude": ["dist", "node_modules"]
 }

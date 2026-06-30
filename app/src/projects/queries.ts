@@ -52,6 +52,25 @@ export const ProjectQuery = graphql(`
           _id
           name
         }
+        clips {
+          _id
+          start
+          duration
+          audioOffset
+          track
+          audio {
+            _id
+            filename
+            uploadStatus
+            downloadUrl
+          }
+        }
+        audios {
+          _id
+          filename
+          uploadStatus
+          downloadUrl
+        }
       }
     }
     projectUser(projectId: $id) {
@@ -61,6 +80,45 @@ export const ProjectQuery = graphql(`
       loop
       viewportStart
       viewportEnd
+      selectedTrack
+      recording {
+        track
+        startSample
+        startedAt
+      }
+    }
+  }
+`);
+
+/**
+ * Adds a track to a project's timeline. Returns the project's updated
+ * `ProjectData` (with its full track list) so Apollo merges the new track into
+ * the cached `Project` query and the track pane/lanes refresh automatically.
+ */
+export const CreateTrackMutation = graphql(`
+  mutation CreateTrack($input: CreateTrackInput!) {
+    createTrack(input: $input) {
+      _id
+      tracks {
+        _id
+        name
+      }
+    }
+  }
+`);
+
+/**
+ * Removes a track (and any clips on it) from a project's timeline. Returns the
+ * updated `ProjectData` so the cached track list refreshes automatically.
+ */
+export const DeleteTrackMutation = graphql(`
+  mutation DeleteTrack($input: DeleteTrackInput!) {
+    deleteTrack(input: $input) {
+      _id
+      tracks {
+        _id
+        name
+      }
     }
   }
 `);
@@ -77,8 +135,8 @@ export const UpdateProjectMetadataMutation = graphql(`
 
 /**
  * Persists (a subset of) the signed-in user's editor view state for a project —
- * the timeline viewport, playback range, and loop flag. Used by `ProjectUserSync`
- * to save local timeline state as it changes.
+ * the timeline viewport, playback range, loop flag, selected track, and active
+ * recording. Used by `ProjectUserSync` to save local timeline state as it changes.
  */
 export const UpdateProjectUserStateMutation = graphql(`
   mutation UpdateProjectUserState($input: UpdateProjectUserStateInput!) {
@@ -89,6 +147,12 @@ export const UpdateProjectUserStateMutation = graphql(`
       loop
       viewportStart
       viewportEnd
+      selectedTrack
+      recording {
+        track
+        startSample
+        startedAt
+      }
     }
   }
 `);
@@ -128,8 +192,62 @@ export const CreateClipMutation = graphql(`
       track
       audio {
         _id
+        filename
         uploadStatus
         downloadUrl
+      }
+    }
+  }
+`);
+
+/**
+ * Moves a clip on the timeline — repositioning it (`start`) and/or moving it to
+ * another `track`. Returns the updated `ProjectClip`; because it keeps its
+ * `_id`, Apollo merges the new placement into the normalized cache and the
+ * timeline lanes re-render without a refetch. Used by the editor's clip
+ * drag-and-drop.
+ */
+export const UpdateClipMutation = graphql(`
+  mutation UpdateClip($input: UpdateClipInput!) {
+    updateClip(input: $input) {
+      _id
+      start
+      duration
+      audioOffset
+      track
+      audio {
+        _id
+        filename
+        uploadStatus
+        downloadUrl
+      }
+    }
+  }
+`);
+
+/**
+ * Archives (soft-removes) one or more clips from a project's timeline. Returns
+ * the updated `ProjectData` with the archived clips already filtered out of its
+ * `clips`, so Apollo merges the trimmed list into the cached `Project` query and
+ * the timeline lanes refresh automatically. Used by the project view's delete
+ * hotkey to remove the selected clips.
+ */
+export const ArchiveClipsMutation = graphql(`
+  mutation ArchiveClips($input: ArchiveClipsInput!) {
+    archiveClips(input: $input) {
+      _id
+      clips {
+        _id
+        start
+        duration
+        audioOffset
+        track
+        audio {
+          _id
+          filename
+          uploadStatus
+          downloadUrl
+        }
       }
     }
   }

@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/primitives/button";
 import { AuthShell, LabeledInput } from "@/auth/AuthShell";
 import { RegisterMutation } from "@/auth/queries";
+import { testIds } from "@/testIds";
 
 export function RegisterView() {
   const navigate = useNavigate();
@@ -39,7 +40,12 @@ export function RegisterView() {
         </>
       }
     >
-      <form onSubmit={onSubmit} className="space-y-4" noValidate>
+      <form
+        onSubmit={onSubmit}
+        className="space-y-4"
+        noValidate
+        data-testid={testIds.RegisterView.form}
+      >
         {error && (
           <p
             role="alert"
@@ -59,6 +65,7 @@ export function RegisterView() {
           value={username}
           onChange={(event) => setUsername(event.target.value)}
           placeholder="your-handle"
+          data-testid={testIds.RegisterView.username}
         />
         <LabeledInput
           id="email"
@@ -70,6 +77,7 @@ export function RegisterView() {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           placeholder="you@example.com"
+          data-testid={testIds.RegisterView.email}
         />
         <LabeledInput
           id="password"
@@ -82,9 +90,15 @@ export function RegisterView() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           placeholder="At least 8 characters"
+          data-testid={testIds.RegisterView.password}
         />
 
-        <Button type="submit" className="w-full" disabled={loading}>
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={loading}
+          data-testid={testIds.RegisterView.submit}
+        >
           {loading ? (
             <Loader2 className="animate-spin" aria-hidden />
           ) : (

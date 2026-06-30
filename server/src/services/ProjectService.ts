@@ -52,7 +52,7 @@ export class ProjectService {
    */
   async create(input: CreateProjectInput): Promise<Project> {
     const projectId = new Types.ObjectId().toHexString();
-    const data = await this.projectData.create(input.ownerId);
+    const data = await this.projectData.create(projectId, input.ownerId);
 
     const ownerMembership = await this.projectUsers.ensureMembership(
       projectId,

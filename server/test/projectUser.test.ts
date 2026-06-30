@@ -30,6 +30,12 @@ const PROJECT_USER = /* GraphQL */ `
       loop
       viewportStart
       viewportEnd
+      selectedTrack
+      recording {
+        track
+        startSample
+        startedAt
+      }
     }
   }
 `;
@@ -43,6 +49,12 @@ const UPDATE_PROJECT_USER_STATE = /* GraphQL */ `
       loop
       viewportStart
       viewportEnd
+      selectedTrack
+      recording {
+        track
+        startSample
+        startedAt
+      }
     }
   }
 `;
@@ -230,5 +242,55 @@ describe("ProjectUser API (per-user project state)", () => {
       { currentUser: null },
     );
     expect(res.errors?.[0]?.message).toBe("Not authenticated");
+  });
+
+  it("persists selected track and recording state", async () => {
+    const userId = await createUser("user-one", "u@example.com");
+    const projectId = await createProject(userId);
+    const trackId = "track-abc";
+    const startedAt = "2026-06-28T16:00:00.000Z";
+
+    const saved = await execute<{
+      updateProjectUserState: {
+        selectedTrack: string | null;
+        recording: {
+          track: string;
+          startSample: number;
+          startedAt: string;
+        } | null;
+      };
+    }>(
+      stack.apollo,
+      UPDATE_PROJECT_USER_STATE,
+      {
+        input: {
+          projectId,
+          selectedTrack: trackId,
+          recording: { track: trackId, startSample: 12_345, startedAt },
+        },
+      },
+      asUser(userId),
+    );
+    expect(saved.errors).toBeUndefined();
+    expect(saved.data?.updateProjectUserState).toMatchObject({
+      selectedTrack: trackId,
+      recording: { track: trackId, startSample: 12_345, startedAt },
+    });
+
+    const cleared = await execute<{
+      updateProjectUserState: {
+        selectedTrack: string | null;
+        recording: unknown | null;
+      };
+    }>(
+      stack.apollo,
+      UPDATE_PROJECT_USER_STATE,
+      { input: { projectId, selectedTrack: null, recording: null } },
+      asUser(userId),
+    );
+    expect(cleared.data?.updateProjectUserState).toMatchObject({
+      selectedTrack: null,
+      recording: null,
+    });
   });
 });

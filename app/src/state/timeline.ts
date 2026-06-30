@@ -86,6 +86,67 @@ export const playEndAtom = atom<number>(DEFAULT_PLAY_END);
  */
 export const loopEnabledAtom = atom<boolean>(DEFAULT_LOOP_ENABLED);
 
+/**
+ * `_id` of the embedded `ProjectTrack` the user has selected. New recordings
+ * land on the selected track; at most one is selected at a time. `null` when
+ * none is selected. Persisted on `ProjectUser.selectedTrack`.
+ */
+export const selectedTrackIdAtom = atom<string | null>(null);
+
+/**
+ * `_id`s of the `ProjectClip`s the user has selected on the timeline. Unlike
+ * the single-track selection, the timeline supports selecting **multiple**
+ * clips at once (e.g. additive clicking) so commands like "archive" can act on
+ * the whole set. Empty when nothing is selected. Client-only editor state (not
+ * persisted).
+ */
+export const selectedClipIdsAtom = atom<ReadonlySet<string>>(
+  new Set<string>(),
+);
+
+/**
+ * The live preview of an in-flight clip drag, or `null` when no clip is being
+ * dragged. While a `TimelineClip` is dragged it writes the clip's previewed
+ * placement here so the rest of the timeline (the drag overlay in `TrackLanes`)
+ * can render the clip following the cursor — horizontally at `start` and on
+ * `trackId`, which may differ from the clip's persisted track when the pointer
+ * moves over another swimlane. The persisted clip only changes on release (via
+ * `updateClip`); this is client-only, ephemeral editor state (not persisted).
+ */
+export type ClipDragState = {
+  /** `_id` of the clip being dragged. */
+  clipId: string;
+  /** Previewed timeline start position, in samples. */
+  start: number;
+  /** `_id` of the track the clip currently previews on (the lane under the pointer). */
+  trackId: string;
+};
+
+export const clipDragAtom = atom<ClipDragState | null>(null);
+
+/** Set (or clear, with `null`) the in-flight clip-drag preview. */
+export const setClipDragAtom = atom(
+  null,
+  (_get, set, next: ClipDragState | null) => {
+    set(clipDragAtom, next);
+  },
+);
+
+/**
+ * The user's active recording, or `null` when not recording. Persisted on
+ * `ProjectUser.recording` so collaborators can observe live recording state.
+ */
+export type RecordingState = {
+  /** `_id` of the track the recording is captured on. */
+  trackId: string;
+  /** Timeline sample the recording starts at. */
+  startSample: number;
+  /** Wall-clock instant the recording began (ISO-8601 string). */
+  startedAt: string;
+};
+
+export const recordingAtom = atom<RecordingState | null>(null);
+
 // --- Derived atoms --------------------------------------------------------
 
 /** Sample at the left-hand cutoff of the timeline. */
@@ -155,9 +216,123 @@ export const setPlayEndAtom = atom(null, (get, set, sample: number) => {
   set(playEndAtom, Math.max(Math.round(sample), get(playStartAtom)));
 });
 
+/** Which boundary of the playback range a drag is currently controlling. */
+export type PlayBoundarySide = "start" | "end";
+
+/**
+ * Drag one boundary of the playback range to a sample, **swapping roles** when
+ * it crosses the other boundary. If the start handle is dragged past `playEnd`,
+ * the old end becomes the new start and the dragged handle takes over as the end
+ * (and vice-versa). Returns the side the dragged handle now controls so a
+ * continuous drag can keep driving the correct boundary after a swap.
+ *
+ * Unlike `setPlayStart`/`setPlayEnd` (which push the opposite edge along), this
+ * keeps both handles anchored where the user left them and only reinterprets
+ * which is "start" vs "end" — the gesture the timeline scrubber handles use.
+ */
+export const dragPlayBoundaryAtom = atom(
+  null,
+  (
+    get,
+    set,
+    { side, sample }: { side: PlayBoundarySide; sample: number },
+  ): PlayBoundarySide => {
+    const rounded = Math.round(sample);
+    const start = get(playStartAtom);
+    const end = get(playEndAtom);
+    if (side === "start") {
+      if (rounded > end) {
+        set(playStartAtom, end);
+        set(playEndAtom, rounded);
+        return "end";
+      }
+      set(playStartAtom, rounded);
+      return "start";
+    }
+    if (rounded < start) {
+      set(playEndAtom, start);
+      set(playStartAtom, rounded);
+      return "start";
+    }
+    set(playEndAtom, rounded);
+    return "end";
+  },
+);
+
 /** Flip looping on/off. */
 export const toggleLoopAtom = atom(null, (get, set) => {
   set(loopEnabledAtom, !get(loopEnabledAtom));
+});
+
+/**
+ * Select a track by id, or pass `null` to deselect. At most one track is
+ * selected at a time.
+ */
+export const setSelectedTrackIdAtom = atom(
+  null,
+  (_get, set, trackId: string | null) => {
+    set(selectedTrackIdAtom, trackId);
+  },
+);
+
+/**
+ * Toggle a clip in/out of the timeline selection.
+ *
+ * - `additive` (e.g. ⌘/Ctrl-click): flips just this clip's membership, leaving
+ *   the rest of the selection untouched — the gesture for building up a
+ *   multi-clip selection.
+ * - non-additive (a plain click): collapses the selection to this clip alone,
+ *   or clears it entirely when this clip was already the sole selection (so a
+ *   plain click still toggles a single clip off).
+ */
+export const toggleSelectedClipAtom = atom(
+  null,
+  (
+    get,
+    set,
+    { clipId, additive = false }: { clipId: string; additive?: boolean },
+  ) => {
+    const current = get(selectedClipIdsAtom);
+    if (additive) {
+      const next = new Set(current);
+      if (next.has(clipId)) next.delete(clipId);
+      else next.add(clipId);
+      set(selectedClipIdsAtom, next);
+      return;
+    }
+    const isOnlySelection = current.size === 1 && current.has(clipId);
+    set(selectedClipIdsAtom, isOnlySelection ? new Set() : new Set([clipId]));
+  },
+);
+
+/** Replace the clip selection with an explicit set of ids. */
+export const setSelectedClipIdsAtom = atom(
+  null,
+  (_get, set, clipIds: Iterable<string>) => {
+    set(selectedClipIdsAtom, new Set(clipIds));
+  },
+);
+
+/** Clear the clip selection. */
+export const clearSelectedClipsAtom = atom(null, (_get, set) => {
+  set(selectedClipIdsAtom, new Set<string>());
+});
+
+/** Begin recording on `trackId` at `startSample`. */
+export const startRecordingAtom = atom(
+  null,
+  (_get, set, { trackId, startSample }: { trackId: string; startSample: number }) => {
+    set(recordingAtom, {
+      trackId,
+      startSample: Math.round(startSample),
+      startedAt: new Date().toISOString(),
+    });
+  },
+);
+
+/** End the active recording. */
+export const stopRecordingAtom = atom(null, (_get, set) => {
+  set(recordingAtom, null);
 });
 
 function clamp(value: number, min: number, max: number): number {
@@ -192,15 +367,32 @@ export type PersistedEditorState = {
   playStart: number;
   playEnd: number;
   loop: boolean;
+  selectedTrack: string | null;
+  recording: {
+    track: string;
+    startSample: number;
+    startedAt: string;
+  } | null;
 };
 
-export const persistedEditorStateAtom = atom<PersistedEditorState>((get) => ({
-  viewportStart: get(viewportStartAtom),
-  viewportEnd: get(viewportEndAtom),
-  playStart: get(playStartAtom),
-  playEnd: get(playEndAtom),
-  loop: get(loopEnabledAtom),
-}));
+export const persistedEditorStateAtom = atom<PersistedEditorState>((get) => {
+  const recording = get(recordingAtom);
+  return {
+    viewportStart: get(viewportStartAtom),
+    viewportEnd: get(viewportEndAtom),
+    playStart: get(playStartAtom),
+    playEnd: get(playEndAtom),
+    loop: get(loopEnabledAtom),
+    selectedTrack: get(selectedTrackIdAtom),
+    recording: recording
+      ? {
+          track: recording.trackId,
+          startSample: recording.startSample,
+          startedAt: recording.startedAt,
+        }
+      : null,
+  };
+});
 
 /** Read the aggregated editor view state that is persisted per user. */
 export function usePersistedEditorState(): PersistedEditorState {
@@ -253,6 +445,12 @@ export type UseTimelinePlayback = {
   setPlayStart: (sample: number) => void;
   /** Set the playback end (loop) boundary. */
   setPlayEnd: (sample: number) => void;
+  /**
+   * Drag one boundary of the play range, swapping start/end when it crosses the
+   * other. Returns the side now under the dragged handle (see
+   * `dragPlayBoundaryAtom`).
+   */
+  dragPlayBoundary: (side: PlayBoundarySide, sample: number) => PlayBoundarySide;
   /** Toggle looping on/off. */
   toggleLoop: () => void;
 };
@@ -268,7 +466,107 @@ export function useTimelinePlayback(): UseTimelinePlayback {
   const loop = useAtomValue(loopEnabledAtom);
   const setPlayStart = useSetAtom(setPlayStartAtom);
   const setPlayEnd = useSetAtom(setPlayEndAtom);
+  const dragBoundary = useSetAtom(dragPlayBoundaryAtom);
   const toggleLoop = useSetAtom(toggleLoopAtom);
 
-  return { playStart, playEnd, loop, setPlayStart, setPlayEnd, toggleLoop };
+  return {
+    playStart,
+    playEnd,
+    loop,
+    setPlayStart,
+    setPlayEnd,
+    dragPlayBoundary: (side, sample) => dragBoundary({ side, sample }),
+    toggleLoop,
+  };
+}
+
+export type UseSelectedTrack = {
+  /** `_id` of the selected track, or `null` when none is selected. */
+  selectedTrackId: string | null;
+  /** Select a track by id, or pass `null` to deselect. */
+  setSelectedTrackId: (trackId: string | null) => void;
+};
+
+/** Typed access to the user's selected track for feature/view components. */
+export function useSelectedTrack(): UseSelectedTrack {
+  const selectedTrackId = useAtomValue(selectedTrackIdAtom);
+  const setSelectedTrackId = useSetAtom(setSelectedTrackIdAtom);
+  return { selectedTrackId, setSelectedTrackId };
+}
+
+export type UseSelectedClips = {
+  /** `_id`s of every currently-selected clip. Empty when none is selected. */
+  selectedClipIds: ReadonlySet<string>;
+  /** Whether a clip is part of the current selection. */
+  isClipSelected: (clipId: string) => boolean;
+  /**
+   * Toggle a clip's selection. Pass `additive` (⌘/Ctrl-click) to add/remove it
+   * without disturbing the rest of the selection; otherwise the selection
+   * collapses to just this clip (or clears if it was the sole selection).
+   */
+  toggleClip: (clipId: string, additive?: boolean) => void;
+  /** Replace the selection with an explicit set of ids. */
+  setSelectedClips: (clipIds: Iterable<string>) => void;
+  /** Clear the selection. */
+  clearSelection: () => void;
+};
+
+/** Typed access to the user's selected clips for feature/view components. */
+export function useSelectedClips(): UseSelectedClips {
+  const selectedClipIds = useAtomValue(selectedClipIdsAtom);
+  const toggle = useSetAtom(toggleSelectedClipAtom);
+  const setSelected = useSetAtom(setSelectedClipIdsAtom);
+  const clear = useSetAtom(clearSelectedClipsAtom);
+
+  return {
+    selectedClipIds,
+    isClipSelected: (clipId) => selectedClipIds.has(clipId),
+    toggleClip: (clipId, additive = false) => toggle({ clipId, additive }),
+    setSelectedClips: setSelected,
+    clearSelection: clear,
+  };
+}
+
+/**
+ * Read the in-flight clip-drag preview (or `null`). Used by the drag overlay in
+ * `TrackLanes` to draw the dragged clip following the cursor. Subscribes to the
+ * preview, so only consumers that need to *render* it (not the clip dispatching
+ * the drag) should use this.
+ */
+export function useClipDrag(): ClipDragState | null {
+  return useAtomValue(clipDragAtom);
+}
+
+/**
+ * Setter for the in-flight clip-drag preview. Write-only (does not subscribe),
+ * so the `TimelineClip` driving the gesture can update the preview on every
+ * pointer-move without re-rendering itself.
+ */
+export function useSetClipDrag(): (next: ClipDragState | null) => void {
+  return useSetAtom(setClipDragAtom);
+}
+
+export type UseRecording = {
+  /** The active recording, or `null` when not recording. */
+  recording: RecordingState | null;
+  /** Whether a recording is currently in progress. */
+  isRecording: boolean;
+  /** Begin recording on `trackId` at `startSample`. */
+  startRecording: (trackId: string, startSample: number) => void;
+  /** End the active recording. */
+  stopRecording: () => void;
+};
+
+/** Typed access to the user's recording state for feature/view components. */
+export function useRecording(): UseRecording {
+  const recording = useAtomValue(recordingAtom);
+  const start = useSetAtom(startRecordingAtom);
+  const stop = useSetAtom(stopRecordingAtom);
+
+  return {
+    recording,
+    isRecording: recording !== null,
+    startRecording: (trackId, startSample) => start({ trackId, startSample }),
+    stopRecording: stop,
+  };
 }

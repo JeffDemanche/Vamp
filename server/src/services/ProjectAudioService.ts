@@ -46,6 +46,11 @@ export class ProjectAudioService {
     return this.audios.findByKey(key);
   }
 
+  /** Every {@link ProjectAudio} belonging to a project. */
+  findByProject(projectId: string): Promise<ProjectAudio[]> {
+    return this.audios.findByProject(projectId);
+  }
+
   /**
    * Register a new pending audio asset and mint the URL the client uploads its
    * bytes to. The record is created `PENDING`; the client `PUT`s to the URL,

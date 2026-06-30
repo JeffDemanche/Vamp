@@ -7,6 +7,7 @@ import { config } from "./config";
 import { createServices } from "./container";
 import type { ServerContext } from "./context";
 import { mountAudioRoutes } from "./routes/audioRoutes";
+import { mountE2eRoutes } from "./routes/e2eRoutes";
 import { createSchema } from "./schema";
 import { mountClient } from "./lib/staticClient";
 
@@ -35,6 +36,8 @@ export async function createApp(
 
   // Binary audio transfer endpoints (upload/download), kept outside GraphQL.
   mountAudioRoutes(app);
+
+  mountE2eRoutes(app);
 
   app.use(
     "/graphql",

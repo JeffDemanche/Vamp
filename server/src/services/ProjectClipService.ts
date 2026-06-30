@@ -1,4 +1,5 @@
 import type { ProjectClip } from "../entities/ProjectClip";
+import type { ProjectData } from "../entities/ProjectData";
 import { refToId } from "../lib/ref";
 import type { ProjectAudioService } from "./ProjectAudioService";
 import type { ProjectDataService } from "./ProjectDataService";
@@ -18,6 +19,24 @@ export interface CreateClipInput {
   /** Offset into the underlying audio to begin at, in samples. */
   audioOffset: number;
   creatorId: string;
+}
+
+/** Identifies a set of clips to archive (soft-remove) from a project. */
+export interface ArchiveClipsInput {
+  projectId: string;
+  /** `_id`s of the embedded `ProjectClip`s to archive. */
+  clipIds: string[];
+}
+
+/** Identifies a clip to move on a project's timeline and the placement to set. */
+export interface UpdateClipInput {
+  projectId: string;
+  /** `_id` of the embedded `ProjectClip` to update. */
+  clipId: string;
+  /** New timeline start position, in samples. Omit to leave unchanged. */
+  start?: number;
+  /** `_id` of the `ProjectTrack` the clip should move to. Omit to leave unchanged. */
+  track?: string;
 }
 
 /**
@@ -56,5 +75,38 @@ export class ProjectClipService {
       audio: input.audioId,
       creator: input.creatorId,
     });
+  }
+
+  /**
+   * Move a clip on the project's timeline — updating its `start` and/or the
+   * `track` it lives on — returning the updated clip. Used by the editor's
+   * drag-and-drop, which repositions a clip horizontally and can drop it onto a
+   * different track.
+   */
+  async update(input: UpdateClipInput): Promise<ProjectClip> {
+    const project = await this.projects.findById(input.projectId);
+    if (!project) throw new Error(`Project not found: ${input.projectId}`);
+
+    return this.projectData.updateClip(refToId(project.projectData), input.clipId, {
+      start: input.start,
+      track: input.track,
+    });
+  }
+
+  /**
+   * Archive (soft-remove) one or more clips from a project's timeline,
+   * returning the updated {@link ProjectData}. Archived clips are retained in
+   * storage but no longer appear on the timeline, mirroring the way
+   * `deleteTrack` returns the updated data so the client can refresh from a
+   * single normalized cache entry.
+   */
+  async archive(input: ArchiveClipsInput): Promise<ProjectData> {
+    const project = await this.projects.findById(input.projectId);
+    if (!project) throw new Error(`Project not found: ${input.projectId}`);
+
+    return this.projectData.archiveClips(
+      refToId(project.projectData),
+      input.clipIds,
+    );
   }
 }

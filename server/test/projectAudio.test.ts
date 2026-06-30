@@ -114,6 +114,20 @@ const GET_PROJECT_CLIPS = /* GraphQL */ `
   }
 `;
 
+const GET_PROJECT_AUDIOS = /* GraphQL */ `
+  query ProjectAudios($id: ID!) {
+    project(id: $id) {
+      projectData {
+        audios {
+          _id
+          uploadStatus
+          downloadUrl
+        }
+      }
+    }
+  }
+`;
+
 let stack: TestStack;
 let storage: FakeAudioStorage;
 let services: Services;
@@ -323,6 +337,57 @@ describe("ProjectAudio + ProjectClip API (presigned upload -> clip)", () => {
     // Nothing was appended to the timeline.
     const data = await ProjectDataModel.findOne().lean();
     expect(data?.clips ?? []).toHaveLength(0);
+  });
+
+  it("resolves all audios belonging to the project via projectData.audios", async () => {
+    const userId = await createUser("owner", "owner@example.com");
+    const { projectId, trackId } = await createProject(userId);
+
+    // One audio that becomes a clip (flips to READY), and one that stays
+    // pending (uploaded but never linked).
+    const linked = await startUpload(userId, projectId);
+    storage.simulateUpload(linked.audio.key, { contentLength: 2_048 });
+    await execute(
+      stack.apollo,
+      CREATE_CLIP,
+      {
+        input: {
+          projectId,
+          trackId,
+          audioId: linked.audio._id,
+          start: 0,
+          duration: 100,
+        },
+      },
+      asUser(userId),
+    );
+    const pending = await startUpload(userId, projectId);
+
+    // A second project's audio must not leak into the first project's library.
+    const other = await createProject(userId);
+    await startUpload(userId, other.projectId);
+
+    const res = await execute<{
+      project: {
+        projectData: {
+          audios: { _id: string; uploadStatus: string; downloadUrl: string | null }[];
+        };
+      };
+    }>(stack.apollo, GET_PROJECT_AUDIOS, { id: projectId }, asUser(userId));
+
+    expect(res.errors).toBeUndefined();
+    const audios = res.data!.project.projectData.audios;
+    expect(audios.map((a) => a._id).sort()).toEqual(
+      [linked.audio._id, pending.audio._id].sort(),
+    );
+
+    const linkedAudio = audios.find((a) => a._id === linked.audio._id)!;
+    expect(linkedAudio.uploadStatus).toBe("READY");
+    expect(linkedAudio.downloadUrl).toContain("op=get");
+
+    const pendingAudio = audios.find((a) => a._id === pending.audio._id)!;
+    expect(pendingAudio.uploadStatus).toBe("PENDING");
+    expect(pendingAudio.downloadUrl).toBeNull();
   });
 
   it("requires authentication to start an upload", async () => {

@@ -5,6 +5,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/primitives/button";
 import { AuthShell, LabeledInput } from "@/auth/AuthShell";
 import { LoginMutation, MeQuery } from "@/auth/queries";
+import { testIds } from "@/testIds";
 
 export function LoginView() {
   const navigate = useNavigate();
@@ -48,10 +49,15 @@ export function LoginView() {
         </>
       }
     >
-      <form onSubmit={onSubmit} className="space-y-4" noValidate>
+      <form
+        onSubmit={onSubmit}
+        className="space-y-4"
+        noValidate
+        data-testid={testIds.LoginView.form}
+      >
         {justRegistered && (
           <p
-            data-testid="registered-notice"
+            data-testid={testIds.LoginView.registeredNotice}
             className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground"
           >
             Account created — please log in.
@@ -76,6 +82,7 @@ export function LoginView() {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           placeholder="you@example.com"
+          data-testid={testIds.LoginView.email}
         />
         <LabeledInput
           id="password"
@@ -87,9 +94,15 @@ export function LoginView() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           placeholder="••••••••"
+          data-testid={testIds.LoginView.password}
         />
 
-        <Button type="submit" className="w-full" disabled={loading}>
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={loading}
+          data-testid={testIds.LoginView.submit}
+        >
           {loading ? (
             <Loader2 className="animate-spin" aria-hidden />
           ) : (

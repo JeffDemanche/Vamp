@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/primitives/table";
 import { ProjectsByUserQuery } from "@/projects/queries";
+import { testIds } from "@/testIds";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -45,7 +46,7 @@ export function ProjectsTable({ userId }: { userId: string }) {
 
   if (error) {
     return (
-      <p data-testid="projects-error" className="py-6 text-destructive">
+      <p data-testid={testIds.ProjectsTable.error} className="py-6 text-destructive">
         Could not load Vamps: {error.message}
       </p>
     );
@@ -55,14 +56,14 @@ export function ProjectsTable({ userId }: { userId: string }) {
 
   if (projects.length === 0) {
     return (
-      <p data-testid="projects-empty" className="py-6 text-muted-foreground">
+      <p data-testid={testIds.ProjectsTable.empty} className="py-6 text-muted-foreground">
         You don&apos;t have any Vamps yet. Create one to get started.
       </p>
     );
   }
 
   return (
-    <Table data-testid="projects-table">
+    <Table data-testid={testIds.ProjectsTable.table}>
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
