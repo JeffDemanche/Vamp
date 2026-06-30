@@ -94,6 +94,21 @@ export function useAudioEngine(): AudioEngine {
   return engine;
 }
 
+/**
+ * The decoded {@link AudioBuffer} for an audio id, or `null` until the engine
+ * has downloaded and decoded it (the provider streams the project's audio in
+ * the background). Re-renders when the buffer lands, so clip waveforms can draw
+ * straight from the engine's in-memory bytes without re-fetching the file. Pass
+ * `null`/`undefined` for clips with no audio to skip the subscription.
+ */
+export function useAudioBuffer(audioId: string | null | undefined): AudioBuffer | null {
+  const engine = useAudioEngine();
+  return React.useSyncExternalStore(
+    (onChange) => engine.subscribeAudioStore(onChange),
+    () => (audioId ? engine.getAudioBuffer(audioId) ?? null : null),
+  );
+}
+
 /** Subscribe to the engine's playing state, re-rendering when it flips. */
 export function useAudioEnginePlaying(): boolean {
   const engine = useAudioEngine();

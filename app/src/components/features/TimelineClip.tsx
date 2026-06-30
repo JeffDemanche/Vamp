@@ -4,6 +4,7 @@ import { useMutation } from "@apollo/client/react"
 import { Clip } from "@/components/composites/clip"
 import { SwimlaneItem } from "@/components/composites/swimlane"
 import { useTimelineCoords } from "@/components/composites/timeline"
+import { ClipWaveform } from "@/components/features/ClipWaveform"
 import { useTimelineDrag } from "@/components/primitives/use-timeline-drag"
 import { cn } from "@/lib/utils"
 import { UpdateClipMutation } from "@/projects/queries"
@@ -14,9 +15,13 @@ export type TimelineClipData = {
   _id: string
   start: number
   duration: number
+  /** Sample offset into the source audio where the clip's window begins. */
+  audioOffset: number
   /** `_id` of the `ProjectTrack` the clip currently lives on. */
   track: string
   audio: {
+    /** `_id` of the source `ProjectAudio`, used to fetch the decoded buffer for its waveform. */
+    _id: string
     filename?: string | null
   }
 }
@@ -94,6 +99,7 @@ export function TimelineClip({
   const setClipDrag = useSetClipDrag()
   const [updateClip] = useMutation(UpdateClipMutation)
   const [dragging, setDragging] = React.useState(false)
+  const [hovered, setHovered] = React.useState(false)
 
   const gesture = React.useRef<ClipGesture | null>(null)
   // True between a real drag ending and its trailing native `click`, so that
@@ -187,7 +193,17 @@ export function TimelineClip({
         onPointerMove={dragHandlers.onPointerMove}
         onPointerUp={dragHandlers.onPointerUp}
         onPointerCancel={dragHandlers.onPointerCancel}
-      />
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
+      >
+        <ClipWaveform
+          audioId={clip.audio._id}
+          audioOffset={clip.audioOffset}
+          duration={clip.duration}
+          selected={selected}
+          hovered={hovered}
+        />
+      </Clip>
     </SwimlaneItem>
   )
 }

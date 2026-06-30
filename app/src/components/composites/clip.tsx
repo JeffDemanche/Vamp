@@ -35,7 +35,11 @@ type ClipProps = Omit<React.ComponentProps<"div">, "children" | "onSelect"> &
      * non-interactive (no selection affordances), e.g. the live recording clip.
      */
     onSelect?: (event: React.MouseEvent | React.KeyboardEvent) => void
-    /** Body content, e.g. a future waveform rendered beneath the header. */
+    /**
+     * Background content filling the clip, drawn behind the header label (e.g.
+     * a waveform). Stretched to the clip's bounds and pointer-inert so it never
+     * intercepts the clip's selection/drag gestures.
+     */
     children?: React.ReactNode
   }
 
@@ -104,7 +108,15 @@ function Clip({
       )}
       {...props}
     >
-      <div className="flex items-center gap-1.5 px-2 py-1">
+      {children && (
+        <div
+          data-slot="clip-body"
+          className="pointer-events-none absolute inset-0"
+        >
+          {children}
+        </div>
+      )}
+      <div className="relative flex items-center gap-1.5 px-2 py-1">
         {variant === "recording" && (
           <span
             className="size-2 shrink-0 rounded-full bg-destructive"
@@ -117,7 +129,6 @@ function Clip({
           </span>
         )}
       </div>
-      {children && <div className="min-h-0 flex-1">{children}</div>}
     </div>
   )
 }

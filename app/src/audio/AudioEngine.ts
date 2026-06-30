@@ -103,6 +103,13 @@ export type AudioEvent = {
 /** Notified whenever the engine's `playing` state flips. */
 export type PlayingListener = (playing: boolean) => void;
 
+/**
+ * Notified whenever the in-memory audio store changes (a buffer is loaded or
+ * removed). Lets the UI react when a clip's audio finishes downloading/decoding
+ * — e.g. to draw its waveform once the bytes are available.
+ */
+export type AudioStoreListener = () => void;
+
 /** Creates the `AudioContext` the engine drives. Injectable for testing. */
 export type AudioContextFactory = () => AudioContext;
 
@@ -243,6 +250,9 @@ export class AudioEngine {
 
   private readonly listeners = new Set<PlayingListener>();
 
+  /** Notified when the audio-buffer store changes (load/remove/clear). */
+  private readonly audioStoreListeners = new Set<AudioStoreListener>();
+
   // --- Recording ----------------------------------------------------------
 
   /** Active recorder while capturing a take, else `null`. */
@@ -274,20 +284,41 @@ export class AudioEngine {
     const ctx = this.ensureContext();
     const buffer = await ctx.decodeAudioData(data);
     this.audioBuffers.set(id, buffer);
+    this.notifyAudioStore();
   }
 
   /** Store an already-decoded buffer directly (e.g. generated audio, tests). */
   setAudioBuffer(id: AudioId, buffer: AudioBuffer): void {
     this.audioBuffers.set(id, buffer);
+    this.notifyAudioStore();
   }
 
   hasAudio(id: AudioId): boolean {
     return this.audioBuffers.has(id);
   }
 
+  /**
+   * The decoded buffer held under `id`, or `undefined` when it has not been
+   * loaded yet. Exposes the engine's already-downloaded/decoded audio so the UI
+   * can derive waveforms from it without re-fetching the file.
+   */
+  getAudioBuffer(id: AudioId): AudioBuffer | undefined {
+    return this.audioBuffers.get(id);
+  }
+
   /** Forget an in-memory audio file. Does not affect in-flight playback. */
   removeAudio(id: AudioId): void {
-    this.audioBuffers.delete(id);
+    if (this.audioBuffers.delete(id)) this.notifyAudioStore();
+  }
+
+  /**
+   * Subscribe to audio-store changes (a buffer loaded, removed, or cleared).
+   * Returns an unsubscribe fn. Consumers that render audio (e.g. clip
+   * waveforms) use this to re-read {@link getAudioBuffer} when bytes land.
+   */
+  subscribeAudioStore(listener: AudioStoreListener): () => void {
+    this.audioStoreListeners.add(listener);
+    return () => this.audioStoreListeners.delete(listener);
   }
 
   // --- State reflection ---------------------------------------------------
@@ -508,7 +539,9 @@ export class AudioEngine {
     this.cleanupRecording();
     this.playing = false;
     this.audioBuffers.clear();
+    this.notifyAudioStore();
     this.listeners.clear();
+    this.audioStoreListeners.clear();
     if (this.context) {
       void this.context.close();
       this.context = null;
@@ -611,6 +644,10 @@ export class AudioEngine {
 
   private notify(): void {
     for (const listener of this.listeners) listener(this.playing);
+  }
+
+  private notifyAudioStore(): void {
+    for (const listener of this.audioStoreListeners) listener();
   }
 }
 

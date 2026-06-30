@@ -7,6 +7,7 @@ import {
   Swimlane,
 } from "@/components/composites/swimlane"
 import { useTimelineCoords } from "@/components/composites/timeline"
+import { ClipWaveform } from "@/components/features/ClipWaveform"
 import { RecordingClip } from "@/components/features/RecordingClip"
 import {
   TimelineClip,
@@ -56,8 +57,16 @@ function ClipDragPreview({
         height: SWIMLANE_HEIGHT,
       }}
     >
-      <Clip variant="standard" label={clip.audio.filename ?? "Clip"} selected />
-    </div>
+        <Clip variant="standard" label={clip.audio.filename ?? "Clip"} selected>
+          <ClipWaveform
+            audioId={clip.audio._id}
+            audioOffset={clip.audioOffset}
+            duration={clip.duration}
+            selected
+            hovered={false}
+          />
+        </Clip>
+      </div>
   )
 }
 
