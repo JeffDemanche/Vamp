@@ -3,6 +3,7 @@ import { Trash2 } from "lucide-react"
 
 import { Button } from "@/components/primitives/button"
 import { cn } from "@/lib/utils"
+import { selectableSurface } from "@/lib/selectable"
 
 type TrackInfoProps = {
   /** The track's display name. */
@@ -55,13 +56,12 @@ function TrackInfo({
           : undefined
       }
       className={cn(
-        "group/track-info flex h-14 items-center gap-2 rounded-md border border-border bg-card px-3 transition-[border-color,box-shadow]",
-        onSelect && "cursor-pointer hover:border-ring/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        selected && "border-primary ring-2 ring-primary",
+        "group/track-info flex h-14 items-center gap-2 px-3",
+        selectableSurface({ scheme: "neutral", interactive: !!onSelect }),
         className,
       )}
     >
-      <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">
         {name}
       </span>
       {onDelete && (
@@ -75,7 +75,7 @@ function TrackInfo({
             event.stopPropagation()
             onDelete()
           }}
-          className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover/track-info:opacity-100"
+          className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover/track-info:opacity-100 group-data-[selected=true]/track-info:text-primary-foreground/70 group-data-[selected=true]/track-info:hover:text-destructive"
         >
           <Trash2 aria-hidden />
         </Button>

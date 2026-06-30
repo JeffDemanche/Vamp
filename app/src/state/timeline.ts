@@ -94,6 +94,14 @@ export const loopEnabledAtom = atom<boolean>(DEFAULT_LOOP_ENABLED);
 export const selectedTrackIdAtom = atom<string | null>(null);
 
 /**
+ * `_id` of the `ProjectClip` the user has selected on the timeline, or `null`
+ * when none is selected. At most one clip is selected at a time, toggled by
+ * clicking a clip. Client-only editor state (not persisted), mirroring the
+ * selection behaviour of {@link selectedTrackIdAtom}.
+ */
+export const selectedClipIdAtom = atom<string | null>(null);
+
+/**
  * The user's active recording, or `null` when not recording. Persisted on
  * `ProjectUser.recording` so collaborators can observe live recording state.
  */
@@ -190,6 +198,17 @@ export const setSelectedTrackIdAtom = atom(
   null,
   (_get, set, trackId: string | null) => {
     set(selectedTrackIdAtom, trackId);
+  },
+);
+
+/**
+ * Select a clip by id, or pass `null` to deselect. At most one clip is selected
+ * at a time.
+ */
+export const setSelectedClipIdAtom = atom(
+  null,
+  (_get, set, clipId: string | null) => {
+    set(selectedClipIdAtom, clipId);
   },
 );
 
@@ -352,6 +371,20 @@ export function useSelectedTrack(): UseSelectedTrack {
   const selectedTrackId = useAtomValue(selectedTrackIdAtom);
   const setSelectedTrackId = useSetAtom(setSelectedTrackIdAtom);
   return { selectedTrackId, setSelectedTrackId };
+}
+
+export type UseSelectedClip = {
+  /** `_id` of the selected clip, or `null` when none is selected. */
+  selectedClipId: string | null;
+  /** Select a clip by id, or pass `null` to deselect. */
+  setSelectedClipId: (clipId: string | null) => void;
+};
+
+/** Typed access to the user's selected clip for feature/view components. */
+export function useSelectedClip(): UseSelectedClip {
+  const selectedClipId = useAtomValue(selectedClipIdAtom);
+  const setSelectedClipId = useSetAtom(setSelectedClipIdAtom);
+  return { selectedClipId, setSelectedClipId };
 }
 
 export type UseRecording = {
