@@ -52,6 +52,24 @@ export class ArchiveClipsInput {
   clipIds!: string[];
 }
 
+@InputType()
+export class UpdateClipInput {
+  @Field(() => ID)
+  projectId!: string;
+
+  /** `_id` of the `ProjectClip` to move. */
+  @Field(() => ID)
+  clipId!: string;
+
+  /** New timeline start position, in samples. Omit to leave unchanged. */
+  @Field(() => Int, { nullable: true })
+  start?: number | null;
+
+  /** `_id` of the `ProjectTrack` to move the clip onto. Omit to leave unchanged. */
+  @Field(() => ID, { nullable: true })
+  track?: string | null;
+}
+
 /**
  * API for {@link ProjectClip}. `createClip` links an uploaded
  * {@link ProjectAudio} to a position on the project's timeline (confirming the
@@ -79,6 +97,26 @@ export class ProjectClipResolver {
       duration: input.duration,
       audioOffset: input.audioOffset,
       creatorId,
+    });
+  }
+
+  /**
+   * Move a clip on a project's timeline: reposition it (`start`) and/or move it
+   * to another `track`. Returns the updated {@link ProjectClip}; since it keeps
+   * its `_id`, Apollo merges the new placement into the normalized cache and the
+   * timeline lanes re-render automatically.
+   */
+  @Mutation(() => ProjectClip)
+  async updateClip(
+    @Arg("input") input: UpdateClipInput,
+    @Ctx() ctx: ServerContext,
+  ): Promise<ProjectClip> {
+    requireUserId(ctx);
+    return ctx.services.projectClips.update({
+      projectId: input.projectId,
+      clipId: input.clipId,
+      start: input.start ?? undefined,
+      track: input.track ?? undefined,
     });
   }
 

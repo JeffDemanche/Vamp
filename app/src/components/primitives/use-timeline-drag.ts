@@ -26,6 +26,14 @@ export type UseTimelineDragOptions = {
    * function; return the sample to commit. Defaults to identity.
    */
   snap?: (rawSample: number) => number
+  /**
+   * Whether to `preventDefault()` on pointer-down. Defaults to `true`, which
+   * suppresses the browser's native drag/text-selection. Set `false` when the
+   * draggable element also needs its native `click` to fire (e.g. a clip that
+   * selects on click as well as drags) — the timeline already disables text
+   * selection, so skipping it is safe there.
+   */
+  preventDefault?: boolean
   /** Fired on pointer-down, once the drag is armed. */
   onDragStart?: (value: TimelineDragSample, event: React.PointerEvent) => void
   /** Fired on every pointer-move while dragging. */
@@ -69,7 +77,14 @@ export type UseTimelineDrag = {
 export function useTimelineDrag(
   options: UseTimelineDragOptions,
 ): UseTimelineDrag {
-  const { clientXToSample, snap, onDragStart, onDrag, onDragEnd } = options
+  const {
+    clientXToSample,
+    snap,
+    onDragStart,
+    onDrag,
+    onDragEnd,
+    preventDefault = true,
+  } = options
   const pointerIdRef = React.useRef<number | null>(null)
   const [dragging, setDragging] = React.useState(false)
 
@@ -82,7 +97,7 @@ export function useTimelineDrag(
     if (event.button !== 0) return
     // Don't let the timeline start a pan/zoom drag underneath this handle.
     event.stopPropagation()
-    event.preventDefault()
+    if (preventDefault) event.preventDefault()
     pointerIdRef.current = event.pointerId
     event.currentTarget.setPointerCapture(event.pointerId)
     setDragging(true)

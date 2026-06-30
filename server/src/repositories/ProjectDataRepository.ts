@@ -34,6 +34,17 @@ export interface AddClipData {
 }
 
 /**
+ * The placement fields an embedded {@link ProjectClip} can be moved by. Each is
+ * optional so callers update only what changed; an empty patch is a no-op.
+ */
+export interface UpdateClipData {
+  /** New timeline start position, in samples. */
+  start?: number;
+  /** `_id` of the `ProjectTrack` the clip should now live on. */
+  track?: string;
+}
+
+/**
  * Data-access layer for {@link ProjectData}. The only place that touches the
  * Typegoose model directly.
  */
@@ -99,6 +110,45 @@ export class ProjectDataRepository {
       .exec();
     if (!doc) throw new Error(`ProjectData not found: ${projectDataId}`);
     return doc;
+  }
+
+  /**
+   * Update the placement of a single embedded clip (its timeline `start` and/or
+   * the `track` it lives on), returning the updated subdocument. Only the
+   * provided fields are written; an empty patch resolves to the unchanged clip
+   * without touching the database.
+   */
+  async updateClip(
+    projectDataId: string,
+    clipId: string,
+    data: UpdateClipData,
+  ): Promise<ProjectClip> {
+    const set: Record<string, number | string> = {};
+    if (data.start !== undefined) set["clips.$[clip].start"] = data.start;
+    if (data.track !== undefined) set["clips.$[clip].track"] = data.track;
+
+    if (Object.keys(set).length === 0) {
+      const existing = await this.findById(projectDataId);
+      if (!existing) throw new Error(`ProjectData not found: ${projectDataId}`);
+      const clip = existing.clips.find((c) => String(c._id) === clipId);
+      if (!clip) throw new Error(`Clip not found: ${clipId}`);
+      return clip;
+    }
+
+    const doc = await ProjectDataModel.findByIdAndUpdate(
+      projectDataId,
+      { $set: set },
+      {
+        returnDocument: "after",
+        arrayFilters: [{ "clip._id": clipId }],
+      },
+    )
+      .lean<ProjectData>()
+      .exec();
+    if (!doc) throw new Error(`ProjectData not found: ${projectDataId}`);
+    const updated = doc.clips.find((c) => String(c._id) === clipId);
+    if (!updated) throw new Error(`Clip not found: ${clipId}`);
+    return updated;
   }
 
   /**

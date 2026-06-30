@@ -72,6 +72,7 @@ type Mutation {
   logout: Boolean!
   register(input: RegisterInput!): User!
   setProjectArchived(archived: Boolean!, id: ID!): Project!
+  updateClip(input: UpdateClipInput!): ProjectClip!
   updateProjectMetadata(input: UpdateProjectMetadataInput!): Project!
   updateProjectUserState(input: UpdateProjectUserStateInput!): ProjectUser!
 }
@@ -162,6 +163,13 @@ input RegisterInput {
   email: String!
   password: String!
   username: String!
+}
+
+input UpdateClipInput {
+  clipId: ID!
+  projectId: ID!
+  start: Int
+  track: ID
 }
 
 input UpdateProjectMetadataInput {

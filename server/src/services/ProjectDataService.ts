@@ -4,6 +4,7 @@ import type {
   AddClipData,
   AddTrackData,
   ProjectDataRepository,
+  UpdateClipData,
 } from "../repositories/ProjectDataRepository";
 
 /**
@@ -20,6 +21,18 @@ export class ProjectDataService {
   /** Append a clip to a project's timeline, returning the created clip. */
   addClip(projectDataId: string, data: AddClipData): Promise<ProjectClip> {
     return this.projectData.addClip(projectDataId, data);
+  }
+
+  /**
+   * Move a clip on a project's timeline (its `start` and/or the `track` it lives
+   * on), returning the updated clip. Only the provided fields are changed.
+   */
+  updateClip(
+    projectDataId: string,
+    clipId: string,
+    data: UpdateClipData,
+  ): Promise<ProjectClip> {
+    return this.projectData.updateClip(projectDataId, clipId, data);
   }
 
   /**

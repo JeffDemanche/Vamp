@@ -28,6 +28,17 @@ export interface ArchiveClipsInput {
   clipIds: string[];
 }
 
+/** Identifies a clip to move on a project's timeline and the placement to set. */
+export interface UpdateClipInput {
+  projectId: string;
+  /** `_id` of the embedded `ProjectClip` to update. */
+  clipId: string;
+  /** New timeline start position, in samples. Omit to leave unchanged. */
+  start?: number;
+  /** `_id` of the `ProjectTrack` the clip should move to. Omit to leave unchanged. */
+  track?: string;
+}
+
 /**
  * Business logic for creating {@link ProjectClip}s — the orchestration that ties
  * an uploaded {@link ProjectAudio} to a position on a project's timeline.
@@ -63,6 +74,22 @@ export class ProjectClipService {
       track: input.trackId,
       audio: input.audioId,
       creator: input.creatorId,
+    });
+  }
+
+  /**
+   * Move a clip on the project's timeline — updating its `start` and/or the
+   * `track` it lives on — returning the updated clip. Used by the editor's
+   * drag-and-drop, which repositions a clip horizontally and can drop it onto a
+   * different track.
+   */
+  async update(input: UpdateClipInput): Promise<ProjectClip> {
+    const project = await this.projects.findById(input.projectId);
+    if (!project) throw new Error(`Project not found: ${input.projectId}`);
+
+    return this.projectData.updateClip(refToId(project.projectData), input.clipId, {
+      start: input.start,
+      track: input.track,
     });
   }
 

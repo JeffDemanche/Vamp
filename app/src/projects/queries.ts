@@ -201,6 +201,31 @@ export const CreateClipMutation = graphql(`
 `);
 
 /**
+ * Moves a clip on the timeline — repositioning it (`start`) and/or moving it to
+ * another `track`. Returns the updated `ProjectClip`; because it keeps its
+ * `_id`, Apollo merges the new placement into the normalized cache and the
+ * timeline lanes re-render without a refetch. Used by the editor's clip
+ * drag-and-drop.
+ */
+export const UpdateClipMutation = graphql(`
+  mutation UpdateClip($input: UpdateClipInput!) {
+    updateClip(input: $input) {
+      _id
+      start
+      duration
+      audioOffset
+      track
+      audio {
+        _id
+        filename
+        uploadStatus
+        downloadUrl
+      }
+    }
+  }
+`);
+
+/**
  * Archives (soft-removes) one or more clips from a project's timeline. Returns
  * the updated `ProjectData` with the archived clips already filtered out of its
  * `clips`, so Apollo merges the trimmed list into the cached `Project` query and

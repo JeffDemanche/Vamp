@@ -39,6 +39,16 @@ const ARCHIVE_CLIPS = /* GraphQL */ `
   }
 `;
 
+const UPDATE_CLIP = /* GraphQL */ `
+  mutation UpdateClip($input: UpdateClipInput!) {
+    updateClip(input: $input) {
+      _id
+      start
+      track
+    }
+  }
+`;
+
 let stack: TestStack;
 
 beforeAll(async () => {
@@ -112,6 +122,92 @@ async function seedClips(
   }).exec();
   return clips.map((c) => c._id);
 }
+
+/** Push an extra embedded track onto a project's `ProjectData`, returning its id. */
+async function addTrack(
+  projectDataId: string,
+  creatorId: string,
+  name: string,
+): Promise<string> {
+  const trackId = new Types.ObjectId().toHexString();
+  await ProjectDataModel.findByIdAndUpdate(projectDataId, {
+    $push: { tracks: { _id: trackId, name, creator: creatorId } },
+  }).exec();
+  return trackId;
+}
+
+describe("ProjectClip API (updateClip)", () => {
+  it("repositions a clip's start without changing its track", async () => {
+    const ownerId = await createUser("owner", "owner@example.com");
+    const { projectId, projectDataId, trackId } = await createProject(ownerId);
+    const [clipA] = await seedClips(projectDataId, trackId, ownerId, 1);
+
+    const res = await execute<{
+      updateClip: { _id: string; start: number; track: string };
+    }>(
+      stack.apollo,
+      UPDATE_CLIP,
+      { input: { projectId, clipId: clipA, start: 5000 } },
+      asUser(ownerId),
+    );
+
+    expect(res.errors).toBeUndefined();
+    expect(res.data!.updateClip).toMatchObject({
+      _id: clipA,
+      start: 5000,
+      track: trackId,
+    });
+
+    const data = await ProjectDataModel.findById(projectDataId).lean();
+    const stored = data?.clips.find((c) => String(c._id) === clipA);
+    expect(stored?.start).toBe(5000);
+    expect(String(stored?.track)).toBe(trackId);
+  });
+
+  it("moves a clip onto another track (and can reposition it at once)", async () => {
+    const ownerId = await createUser("owner", "owner@example.com");
+    const { projectId, projectDataId, trackId } = await createProject(ownerId);
+    const trackB = await addTrack(projectDataId, ownerId, "Track 2");
+    const [clipA] = await seedClips(projectDataId, trackId, ownerId, 1);
+
+    const res = await execute<{
+      updateClip: { _id: string; start: number; track: string };
+    }>(
+      stack.apollo,
+      UPDATE_CLIP,
+      { input: { projectId, clipId: clipA, start: 12000, track: trackB } },
+      asUser(ownerId),
+    );
+
+    expect(res.errors).toBeUndefined();
+    expect(res.data!.updateClip).toMatchObject({
+      _id: clipA,
+      start: 12000,
+      track: trackB,
+    });
+
+    const data = await ProjectDataModel.findById(projectDataId).lean();
+    const stored = data?.clips.find((c) => String(c._id) === clipA);
+    expect(String(stored?.track)).toBe(trackB);
+    expect(stored?.start).toBe(12000);
+  });
+
+  it("requires authentication to move a clip", async () => {
+    const ownerId = await createUser("owner", "owner@example.com");
+    const { projectId, projectDataId, trackId } = await createProject(ownerId);
+    const [clipA] = await seedClips(projectDataId, trackId, ownerId, 1);
+
+    const res = await execute<{ updateClip: unknown | null }>(
+      stack.apollo,
+      UPDATE_CLIP,
+      { input: { projectId, clipId: clipA, start: 5000 } },
+      { currentUser: null },
+    );
+
+    expect(res.data?.updateClip ?? null).toBeNull();
+    expect(res.errors?.[0]?.message).toBe("Not authenticated");
+  });
+});
 
 describe("ProjectClip API (archiveClips)", () => {
   it("archives a single clip, hiding it from the timeline", async () => {

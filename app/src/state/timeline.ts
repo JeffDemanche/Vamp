@@ -105,6 +105,34 @@ export const selectedClipIdsAtom = atom<ReadonlySet<string>>(
 );
 
 /**
+ * The live preview of an in-flight clip drag, or `null` when no clip is being
+ * dragged. While a `TimelineClip` is dragged it writes the clip's previewed
+ * placement here so the rest of the timeline (the drag overlay in `TrackLanes`)
+ * can render the clip following the cursor — horizontally at `start` and on
+ * `trackId`, which may differ from the clip's persisted track when the pointer
+ * moves over another swimlane. The persisted clip only changes on release (via
+ * `updateClip`); this is client-only, ephemeral editor state (not persisted).
+ */
+export type ClipDragState = {
+  /** `_id` of the clip being dragged. */
+  clipId: string;
+  /** Previewed timeline start position, in samples. */
+  start: number;
+  /** `_id` of the track the clip currently previews on (the lane under the pointer). */
+  trackId: string;
+};
+
+export const clipDragAtom = atom<ClipDragState | null>(null);
+
+/** Set (or clear, with `null`) the in-flight clip-drag preview. */
+export const setClipDragAtom = atom(
+  null,
+  (_get, set, next: ClipDragState | null) => {
+    set(clipDragAtom, next);
+  },
+);
+
+/**
  * The user's active recording, or `null` when not recording. Persisted on
  * `ProjectUser.recording` so collaborators can observe live recording state.
  */
@@ -497,6 +525,25 @@ export function useSelectedClips(): UseSelectedClips {
     setSelectedClips: setSelected,
     clearSelection: clear,
   };
+}
+
+/**
+ * Read the in-flight clip-drag preview (or `null`). Used by the drag overlay in
+ * `TrackLanes` to draw the dragged clip following the cursor. Subscribes to the
+ * preview, so only consumers that need to *render* it (not the clip dispatching
+ * the drag) should use this.
+ */
+export function useClipDrag(): ClipDragState | null {
+  return useAtomValue(clipDragAtom);
+}
+
+/**
+ * Setter for the in-flight clip-drag preview. Write-only (does not subscribe),
+ * so the `TimelineClip` driving the gesture can update the preview on every
+ * pointer-move without re-rendering itself.
+ */
+export function useSetClipDrag(): (next: ClipDragState | null) => void {
+  return useSetAtom(setClipDragAtom);
 }
 
 export type UseRecording = {
