@@ -8,6 +8,7 @@ import { PlaybackScrubbers } from "@/components/features/PlaybackScrubbers"
 import { RecordingController } from "@/components/features/RecordingController"
 import { TimelineToolbar } from "@/components/features/TimelineToolbar"
 import { TrackLanes } from "@/components/features/TrackLanes"
+import { TransportHotkeys } from "@/components/features/TransportHotkeys"
 import { useTimelinePlayback, useTimelineViewport } from "@/state/timeline"
 
 /**
@@ -52,6 +53,7 @@ function TimelineEditor({ projectId }: { projectId: string }) {
   return (
     <AudioEngineProvider projectId={projectId}>
       <RecordingController projectId={projectId}>
+        <TransportHotkeys />
         <div className="flex h-full flex-col">
           <TimelineToolbar />
           <div className="min-h-0 flex-1">
