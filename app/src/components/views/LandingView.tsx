@@ -1,9 +1,11 @@
 import { useQuery } from "@apollo/client/react";
 import { ArrowRight, Loader2, LogIn, LogOut, UserPlus } from "lucide-react";
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { MeQuery } from "@/auth/queries";
 import { Button } from "@/components/primitives/button";
 import { graphql } from "@/generated";
+import { logError } from "@/lib/errors";
 import { testIds } from "@/testIds";
 
 export const UsersQuery = graphql(`
@@ -20,6 +22,10 @@ export function LandingView() {
   const { data, loading, error } = useQuery(UsersQuery);
   const { data: meData } = useQuery(MeQuery);
   const isSignedIn = Boolean(meData?.me);
+
+  useEffect(() => {
+    if (error) logError("Failed to load users for the landing view", error);
+  }, [error]);
 
   return (
     <div
@@ -79,7 +85,7 @@ export function LandingView() {
 
       {error && (
         <p data-testid={testIds.LandingView.error} className="text-destructive">
-          Could not load users: {error.message}
+          Something went wrong loading users.
         </p>
       )}
 

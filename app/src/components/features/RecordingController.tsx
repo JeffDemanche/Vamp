@@ -12,6 +12,7 @@ import {
   subscribeMicrophonePermission,
   type MicrophonePermission,
 } from "@/audio/microphone"
+import { logError } from "@/lib/errors"
 import { uploadAudioAndCreateClip } from "@/projects/audioUpload"
 import { useRecording, useSelectedTrack } from "@/state/timeline"
 
@@ -181,11 +182,8 @@ export function RecordingController({
         audioOffset: 0,
       })
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? `Couldn't save the recording: ${err.message}`
-          : "Couldn't save the recording.",
-      )
+      logError("Failed to save the recording", err)
+      setError("Couldn't save the recording.")
     }
   }
 
