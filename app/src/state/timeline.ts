@@ -148,6 +148,11 @@ export type RecordingState = {
    * Omitted for non-looped takes.
    */
   loopLength?: number;
+  /**
+   * Playback-range start (samples) when recording began — loop anchor for
+   * wrapped takes. Omitted for non-looped takes.
+   */
+  playStart?: number;
 };
 
 export const recordingAtom = atom<RecordingState | null>(null);
@@ -333,13 +338,20 @@ export const startRecordingAtom = atom(
       trackId,
       startSample,
       loopLength,
-    }: { trackId: string; startSample: number; loopLength?: number },
+      playStart,
+    }: {
+      trackId: string;
+      startSample: number;
+      loopLength?: number;
+      playStart?: number;
+    },
   ) => {
     set(recordingAtom, {
       trackId,
       startSample: Math.round(startSample),
       startedAt: new Date().toISOString(),
       ...(loopLength !== undefined ? { loopLength } : {}),
+      ...(playStart !== undefined ? { playStart } : {}),
     });
   },
 );
@@ -570,6 +582,7 @@ export type UseRecording = {
     trackId: string,
     startSample: number,
     loopLength?: number,
+    playStart?: number,
   ) => void;
   /** End the active recording. */
   stopRecording: () => void;
@@ -584,8 +597,8 @@ export function useRecording(): UseRecording {
   return {
     recording,
     isRecording: recording !== null,
-    startRecording: (trackId, startSample, loopLength) =>
-      start({ trackId, startSample, loopLength }),
+    startRecording: (trackId, startSample, loopLength, playStart) =>
+      start({ trackId, startSample, loopLength, playStart }),
     stopRecording: stop,
   };
 }

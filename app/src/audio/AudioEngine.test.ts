@@ -591,11 +591,18 @@ describe("AudioEngine", () => {
 
     // Loop wrap: playhead jumps back to playStart while capture continues.
     (engine as unknown as { handleEnded(): void }).handleEnded();
+    expect(engine.hasRecordingCrossedLoop()).toBe(true);
     ctx.currentTime += 0.25;
     expect(engine.timecode).toBeCloseTo(0.25 * SAMPLE_RATE);
     expect(engine.getRecordingCapturedSamples()).toBeCloseTo(1.25 * SAMPLE_RATE);
 
-    await engine.stopRecording();
+    // Playhead passes the recording start again — latch must keep placement.
+    ctx.currentTime += 0.75;
+    expect(engine.timecode).toBeCloseTo(SAMPLE_RATE);
+    expect(engine.hasRecordingCrossedLoop()).toBe(true);
+
+    const result = await engine.stopRecording();
+    expect(result.crossedLoopBoundary).toBe(true);
   });
 
   it("exposes live PCM through getRecordingBuffer while recording", async () => {

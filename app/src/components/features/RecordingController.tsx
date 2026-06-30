@@ -12,9 +12,13 @@ import {
   subscribeMicrophonePermission,
   type MicrophonePermission,
 } from "@/audio/microphone"
+import {
+  recordingClipLayout,
+  type RecordingClipLayout,
+} from "@/audio/recordingClipLayout"
 import { logError } from "@/lib/errors"
 import { uploadAudioAndCreateClip } from "@/projects/audioUpload"
-import { useRecording, useSelectedTrack } from "@/state/timeline"
+import { useRecording, useSelectedTrack, useTimelinePlayback } from "@/state/timeline"
 
 /**
  * The recording controls surfaced to the editor UI (the `TimelineToolbar`).
@@ -54,33 +58,29 @@ export function useRecordingControls(): RecordingControls {
   return controls
 }
 
-/**
- * How a recording (live or finished) occupies the timeline. Flat takes span
- * everything captured so far. Looped takes grow until the first loop point,
- * then lock to one loop region (stacked mode) — matching persisted clip placement.
- */
-export function recordingClipDisplay(
-  capturedSamples: number,
-  loopLength?: number | null,
-): {
-  duration: number
-  mode: "FLAT" | "STACKED"
-  loopLength?: number
-} {
-  if (!loopLength) {
-    return { duration: capturedSamples, mode: "FLAT" }
-  }
-  const duration =
-    capturedSamples >= loopLength ? loopLength : capturedSamples
-  return { duration, mode: "STACKED", loopLength }
-}
+export {
+  recordingClipDisplay,
+  recordingClipLayout,
+  type RecordingClipLayout,
+} from "@/audio/recordingClipLayout"
 
 /** Timeline placement for a finished take — exported for unit tests. */
 export function clipPlacementFromRecording(result: {
   durationSamples: number
   loopLength?: number
-}) {
-  return recordingClipDisplay(result.durationSamples, result.loopLength)
+  startSample: number
+  stopSample: number
+  playStart: number
+  crossedLoopBoundary: boolean
+}): RecordingClipLayout {
+  return recordingClipLayout({
+    startSample: result.startSample,
+    capturedSamples: result.durationSamples,
+    loopLength: result.loopLength,
+    playStart: result.playStart,
+    crossedLoopBoundary: result.crossedLoopBoundary,
+    stopSample: result.stopSample,
+  })
 }
 
 /**
@@ -116,6 +116,7 @@ export function RecordingController({
   const playing = useAudioEnginePlaying()
   const client = useApolloClient()
   const { selectedTrackId } = useSelectedTrack()
+  const { playStart } = useTimelinePlayback()
   const { recording, isRecording, startRecording, stopRecording } = useRecording()
 
   const [permission, setPermission] =
@@ -162,7 +163,7 @@ export function RecordingController({
           startPlayback: true,
         })
         setPermission("granted")
-        startRecording(selectedTrackId, startSample, loopLength)
+        startRecording(selectedTrackId, startSample, loopLength, playStart)
       } catch (err) {
         if (isMicrophonePermissionDenied(err)) setPermission("denied")
         setError(describeMicrophoneError(err))
@@ -170,7 +171,7 @@ export function RecordingController({
         armingRef.current = false
       }
     })()
-  }, [engine, isRecording, selectedTrackId, startRecording])
+  }, [engine, isRecording, selectedTrackId, startRecording, playStart])
 
   // Finalize the take whenever playback stops mid-recording: stop capture,
   // clear the live state, and persist the clip.
@@ -203,18 +204,18 @@ export function RecordingController({
       return
     }
     try {
-      const { duration, mode, loopLength } = clipPlacementFromRecording(result)
+      const placement = clipPlacementFromRecording(result)
       await uploadAudioAndCreateClip(
         client,
         result.blob,
         {
           projectId,
           trackId: finishedRecording.trackId,
-          start: result.startSample,
-          duration,
+          start: placement.start,
+          duration: placement.duration,
           audioOffset: 0,
-          mode,
-          loopLength,
+          mode: placement.mode,
+          loopLength: placement.loopLength,
         },
         { engine },
       )

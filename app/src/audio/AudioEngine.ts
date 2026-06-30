@@ -1,3 +1,8 @@
+import {
+  finalizeWrappedRecordingPcm,
+  remapFirstPassToLoopRegion,
+} from "@/audio/recordingClipLayout";
+import { encodeMonoWav } from "@/audio/wavEncode";
 import { DEFAULT_SAMPLE_RATE } from "@/state/timeline";
 
 /**
@@ -154,6 +159,10 @@ export type RecordingResult = {
   contentType: string;
   /** Timeline sample the first recorded frame corresponds to. */
   startSample: number;
+  /** Timeline sample the playhead occupied when recording stopped. */
+  stopSample: number;
+  /** Playback-range start (samples) when recording began — the loop anchor. */
+  playStart: number;
   /** Recording length, in timeline samples. */
   durationSamples: number;
   /**
@@ -161,6 +170,11 @@ export type RecordingResult = {
    * looping. Omitted for non-looped takes.
    */
   loopLength?: number;
+  /**
+   * Whether playback looped at least once during capture. When true the take
+   * anchors at `playStart` and its audio is remapped into loop coordinates.
+   */
+  crossedLoopBoundary: boolean;
 };
 
 export type AudioEngineOptions = {
@@ -284,8 +298,16 @@ export class AudioEngine {
   private recordStartContextTime = 0;
   /** Timeline sample the first recorded frame corresponds to. */
   private recordStartSample = 0;
+  /** Playback-range start when recording began — loop anchor for wrapped takes. */
+  private recordPlayStart = 0;
   /** Loop length (samples) captured when recording began, if looping. */
   private recordLoopLength: number | undefined;
+  /**
+   * Latches true the first time playback loops during an active looped recording.
+   * Stays set until capture ends so clip placement does not revert when the
+   * playhead passes the recording's initial `startSample` again.
+   */
+  private recordCrossedLoop = false;
 
   /** Taps the mic stream for live waveform preview while recording. */
   private recordingSource: MediaStreamAudioSourceNode | null = null;
@@ -297,6 +319,7 @@ export class AudioEngine {
   private recordingBufferCache: AudioBuffer | undefined;
   private recordingBufferCacheSourceLength = 0;
   private recordingBufferCacheSampleRate = 0;
+  private recordingBufferCacheWrapped = false;
   private readonly recordingBufferListeners = new Set<RecordingBufferListener>();
   private recordingBufferNotifyPending = false;
 
@@ -463,6 +486,8 @@ export class AudioEngine {
         this.recordStartContextTime = ctx.currentTime;
         this.recordStartSample = this.timecode;
         const { loop, playStart, playEnd } = this.state;
+        this.recordPlayStart = playStart;
+        this.recordCrossedLoop = false;
         this.recordLoopLength =
           loop && playEnd > playStart ? playEnd - playStart : undefined;
         resolve({
@@ -502,15 +527,47 @@ export class AudioEngine {
     const elapsedSeconds = Math.max(0, ctx.currentTime - this.recordStartContextTime);
     const durationSamples = Math.round(elapsedSeconds * this.state.sampleRate);
     const startSample = Math.round(this.recordStartSample);
+    const stopSample = Math.round(this.timecode);
+    const playStart = this.recordPlayStart;
     const loopLength = this.recordLoopLength;
+    const crossedLoopBoundary =
+      loopLength !== undefined && this.recordCrossedLoop;
 
     return new Promise<RecordingResult>((resolve, reject) => {
       recorder.onstop = () => {
-        const contentType =
-          recorder.mimeType || this.recordedChunks[0]?.type || "audio/webm";
-        const blob = new Blob(this.recordedChunks, { type: contentType });
+        let blob: Blob;
+        let contentType: string;
+        if (crossedLoopBoundary && loopLength !== undefined) {
+          const pcm = this.recordingPcmAtTimelineRate();
+          if (pcm) {
+            const remapped = finalizeWrappedRecordingPcm(pcm, {
+              startSample,
+              playStart,
+              loopLength,
+            });
+            blob = encodeMonoWav(remapped, this.state.sampleRate);
+            contentType = "audio/wav";
+          } else {
+            contentType =
+              recorder.mimeType || this.recordedChunks[0]?.type || "audio/webm";
+            blob = new Blob(this.recordedChunks, { type: contentType });
+          }
+        } else {
+          contentType =
+            recorder.mimeType || this.recordedChunks[0]?.type || "audio/webm";
+          blob = new Blob(this.recordedChunks, { type: contentType });
+        }
         this.cleanupRecording();
-        resolve({ blob, contentType, startSample, durationSamples, loopLength });
+        resolve({
+          blob,
+          contentType,
+          startSample,
+          stopSample,
+          playStart,
+          durationSamples,
+          loopLength,
+          crossedLoopBoundary,
+        });
       };
       recorder.onerror = (event) => {
         this.cleanupRecording();
@@ -545,6 +602,11 @@ export class AudioEngine {
     return Math.round(elapsedSeconds * this.state.sampleRate);
   }
 
+  /** Whether playback has looped at least once during the active recording. */
+  hasRecordingCrossedLoop(): boolean {
+    return this.recordCrossedLoop;
+  }
+
   /**
    * The PCM captured so far during an active recording, resampled to the
    * timeline `sampleRate`, or `undefined` when not recording / before the first
@@ -553,44 +615,47 @@ export class AudioEngine {
   getRecordingBuffer(): AudioBuffer | undefined {
     const ctx = this.context;
     if (!ctx || !this.mediaRecorder) return undefined;
-    const src = this.recordingChannelData[0];
-    if (!src || src.length === 0) return undefined;
+    const pcm = this.recordingPcmAtTimelineRate();
+    if (!pcm || pcm.length === 0) return undefined;
 
     const timelineRate = this.state.sampleRate;
+    const loopLength = this.recordLoopLength;
+    const crossedLoopBoundary =
+      loopLength !== undefined && this.recordCrossedLoop;
+
+    let samples = pcm;
+    if (crossedLoopBoundary && loopLength !== undefined) {
+      const firstPass = remapFirstPassToLoopRegion(pcm, {
+        startSample: Math.round(this.recordStartSample),
+        playStart: this.recordPlayStart,
+        loopLength,
+      });
+      const rest = pcm.subarray(loopLength);
+      if (rest.length > 0) {
+        samples = new Float32Array(firstPass.length + rest.length);
+        samples.set(firstPass);
+        samples.set(rest, firstPass.length);
+      } else {
+        samples = firstPass;
+      }
+    }
+
     if (
       this.recordingBufferCache &&
-      this.recordingBufferCacheSourceLength === src.length &&
-      this.recordingBufferCacheSampleRate === timelineRate
+      this.recordingBufferCacheSourceLength === pcm.length &&
+      this.recordingBufferCacheSampleRate === timelineRate &&
+      this.recordingBufferCacheWrapped === crossedLoopBoundary
     ) {
       return this.recordingBufferCache;
     }
 
-    const contextRate = ctx.sampleRate;
-    let buffer: AudioBuffer;
-    if (timelineRate === contextRate) {
-      buffer = ctx.createBuffer(1, src.length, timelineRate);
-      buffer.copyToChannel(new Float32Array(src), 0);
-    } else {
-      const outLength = Math.max(
-        1,
-        Math.round((src.length * timelineRate) / contextRate),
-      );
-      const out = new Float32Array(outLength);
-      for (let i = 0; i < outLength; i++) {
-        const srcPos = (i * contextRate) / timelineRate;
-        const idx = Math.floor(srcPos);
-        const frac = srcPos - idx;
-        const a = src[idx] ?? 0;
-        const b = src[idx + 1] ?? a;
-        out[i] = a + frac * (b - a);
-      }
-      buffer = ctx.createBuffer(1, outLength, timelineRate);
-      buffer.copyToChannel(out, 0);
-    }
+    const buffer = ctx.createBuffer(1, samples.length, timelineRate);
+    buffer.copyToChannel(new Float32Array(samples), 0);
 
     this.recordingBufferCache = buffer;
-    this.recordingBufferCacheSourceLength = src.length;
+    this.recordingBufferCacheSourceLength = pcm.length;
     this.recordingBufferCacheSampleRate = timelineRate;
+    this.recordingBufferCacheWrapped = crossedLoopBoundary;
     return buffer;
   }
 
@@ -613,6 +678,34 @@ export class AudioEngine {
     this.mediaRecorder = null;
     this.recordedChunks = [];
     this.recordLoopLength = undefined;
+    this.recordPlayStart = 0;
+    this.recordCrossedLoop = false;
+  }
+
+  /** Mono PCM captured so far, resampled to the timeline sample rate. */
+  private recordingPcmAtTimelineRate(): Float32Array | undefined {
+    const ctx = this.context;
+    const src = this.recordingChannelData[0];
+    if (!ctx || !src || src.length === 0) return undefined;
+
+    const timelineRate = this.state.sampleRate;
+    const contextRate = ctx.sampleRate;
+    if (timelineRate === contextRate) return src;
+
+    const outLength = Math.max(
+      1,
+      Math.round((src.length * timelineRate) / contextRate),
+    );
+    const out = new Float32Array(outLength);
+    for (let i = 0; i < outLength; i++) {
+      const srcPos = (i * contextRate) / timelineRate;
+      const idx = Math.floor(srcPos);
+      const frac = srcPos - idx;
+      const a = src[idx] ?? 0;
+      const b = src[idx + 1] ?? a;
+      out[i] = a + frac * (b - a);
+    }
+    return out;
   }
 
   // --- Reported state -----------------------------------------------------
@@ -733,6 +826,11 @@ export class AudioEngine {
   private handleEnded(): void {
     const { loop, playStart } = this.state;
     if (loop) {
+      if (this.mediaRecorder && this.recordLoopLength !== undefined) {
+        this.recordCrossedLoop = true;
+        this.recordingBufferCache = undefined;
+        this.notifyRecordingBuffer();
+      }
       this.teardownPlayback();
       this.scheduleFrom(playStart);
       return;
@@ -854,6 +952,7 @@ export class AudioEngine {
     this.recordingBufferCache = undefined;
     this.recordingBufferCacheSourceLength = 0;
     this.recordingBufferCacheSampleRate = 0;
+    this.recordingBufferCacheWrapped = false;
     this.notifyRecordingBuffer();
   }
 

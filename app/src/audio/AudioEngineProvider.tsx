@@ -151,6 +151,34 @@ export function useRecordingCapturedSamples(active: boolean): number {
   return samples;
 }
 
+/**
+ * Whether playback has looped at least once during the active recording. Polled
+ * on `requestAnimationFrame` while `active` so the live `RecordingClip` stays
+ * anchored at `playStart` after the first loop-back.
+ */
+export function useRecordingCrossedLoop(active: boolean): boolean {
+  const engine = useAudioEngine();
+  const [crossed, setCrossed] = React.useState(() =>
+    engine.hasRecordingCrossedLoop(),
+  );
+
+  React.useEffect(() => {
+    if (!active) {
+      setCrossed(engine.hasRecordingCrossedLoop());
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      setCrossed(engine.hasRecordingCrossedLoop());
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [engine, active]);
+
+  return crossed;
+}
+
 /** Subscribe to the engine's playing state, re-rendering when it flips. */
 export function useAudioEnginePlaying(): boolean {
   const engine = useAudioEngine();
