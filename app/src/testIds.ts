@@ -62,6 +62,10 @@ export const testIds = {
   /** `TimelineToolbar` — playback/record toolbar above the timeline. */
   TimelineToolbar: {
     root: "timeline-toolbar",
+    recordingSettingsTrigger: "recording-settings-trigger",
+    recordingSettingsContent: "recording-settings-content",
+    recordingInputSelect: "recording-input-select",
+    recordingOutputSelect: "recording-output-select",
   },
   /** `TrackPane` — track list to the left of the timeline. */
   TrackPane: {

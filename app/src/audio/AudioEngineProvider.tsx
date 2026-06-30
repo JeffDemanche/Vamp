@@ -1,6 +1,12 @@
 import { useQuery } from "@apollo/client/react";
 import * as React from "react";
 
+import {
+  defaultAudioDeviceId,
+  enumerateAudioDevices,
+  audioOutputSelectionSupported,
+  type AudioDevice,
+} from "@/audio/audioDevices";
 import { ProjectQuery } from "@/projects/queries";
 import { useTimelinePlayback, useTimelineViewport } from "@/state/timeline";
 import { ensureAudioLoaded } from "./audioLoader";
@@ -186,6 +192,79 @@ export function useAudioEnginePlaying(): boolean {
     (onChange) => engine.subscribe(onChange),
     () => engine.isPlaying,
   );
+}
+
+export type AudioDevicesState = {
+  inputs: AudioDevice[];
+  outputs: AudioDevice[];
+  inputDeviceId: string;
+  outputDeviceId: string;
+  setInputDeviceId: (deviceId: string) => void;
+  setOutputDeviceId: (deviceId: string) => void;
+  /** Whether the browser exposes output routing via `AudioContext.setSinkId`. */
+  outputSelectionSupported: boolean;
+};
+
+/**
+ * Enumerates audio input/output devices and keeps the editor's `AudioEngine`
+ * in sync with the user's selections.
+ */
+export function useAudioDevices(): AudioDevicesState {
+  const engine = useAudioEngine();
+  const defaultId = defaultAudioDeviceId();
+  const [inputs, setInputs] = React.useState<AudioDevice[]>([]);
+  const [outputs, setOutputs] = React.useState<AudioDevice[]>([]);
+  const [inputDeviceId, setInputDeviceIdState] = React.useState(
+    () => engine.getInputDeviceId() ?? defaultId,
+  );
+  const [outputDeviceId, setOutputDeviceIdState] = React.useState(
+    () => engine.getOutputDeviceId() ?? defaultId,
+  );
+  const outputSelectionSupported = audioOutputSelectionSupported();
+
+  const setInputDeviceId = React.useCallback(
+    (deviceId: string) => {
+      setInputDeviceIdState(deviceId);
+      engine.setInputDeviceId(deviceId === defaultId ? null : deviceId);
+    },
+    [defaultId, engine],
+  );
+
+  const setOutputDeviceId = React.useCallback(
+    (deviceId: string) => {
+      setOutputDeviceIdState(deviceId);
+      engine.setOutputDeviceId(deviceId === defaultId ? null : deviceId);
+    },
+    [defaultId, engine],
+  );
+
+  React.useEffect(() => {
+    let active = true;
+
+    async function refreshDevices(): Promise<void> {
+      const listed = await enumerateAudioDevices();
+      if (!active) return;
+      setInputs(listed.inputs);
+      setOutputs(listed.outputs);
+    }
+
+    void refreshDevices();
+    navigator.mediaDevices?.addEventListener("devicechange", refreshDevices);
+    return () => {
+      active = false;
+      navigator.mediaDevices?.removeEventListener("devicechange", refreshDevices);
+    };
+  }, []);
+
+  return {
+    inputs,
+    outputs,
+    inputDeviceId,
+    outputDeviceId,
+    setInputDeviceId,
+    setOutputDeviceId,
+    outputSelectionSupported,
+  };
 }
 
 /**

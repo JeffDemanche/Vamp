@@ -3,6 +3,7 @@ import {
   remapFirstPassToLoopRegion,
 } from "@/audio/recordingClipLayout";
 import { encodeMonoWav } from "@/audio/wavEncode";
+import { applyAudioOutputDevice } from "@/audio/audioDevices";
 import { DEFAULT_SAMPLE_RATE } from "@/state/timeline";
 
 /**
@@ -211,12 +212,19 @@ const defaultContextFactory: AudioContextFactory = () => {
   return new Ctor();
 };
 
-const defaultMediaStreamProvider: MediaStreamProvider = () => {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("Microphone capture is not supported in this browser.");
-  }
-  return navigator.mediaDevices.getUserMedia({ audio: true });
-};
+function createMediaStreamProvider(
+  getInputDeviceId: () => string | null,
+): MediaStreamProvider {
+  return () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Microphone capture is not supported in this browser.");
+    }
+    const deviceId = getInputDeviceId();
+    return navigator.mediaDevices.getUserMedia({
+      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+    });
+  };
+}
 
 const defaultMediaRecorderFactory: MediaRecorderFactory = (stream, options) =>
   new MediaRecorder(stream, options);
@@ -260,6 +268,10 @@ export class AudioEngine {
 
   private context: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  /** Preferred microphone device id, or `null` for the system default. */
+  private inputDeviceId: string | null = null;
+  /** Preferred playback device id, or `null` for the system default. */
+  private outputDeviceId: string | null = null;
 
   /** Currently sounding source nodes, tracked so they can be stopped. */
   private activeSources: AudioBufferSourceNode[] = [];
@@ -326,9 +338,34 @@ export class AudioEngine {
   constructor(options: AudioEngineOptions = {}) {
     this.contextFactory = options.contextFactory ?? defaultContextFactory;
     this.mediaStreamProvider =
-      options.mediaStreamProvider ?? defaultMediaStreamProvider;
+      options.mediaStreamProvider ??
+      createMediaStreamProvider(() => this.inputDeviceId);
     this.mediaRecorderFactory =
       options.mediaRecorderFactory ?? defaultMediaRecorderFactory;
+  }
+
+  /** The selected microphone device id, or `null` for the system default. */
+  getInputDeviceId(): string | null {
+    return this.inputDeviceId;
+  }
+
+  /** Select which microphone to capture from on the next recording. */
+  setInputDeviceId(deviceId: string | null): void {
+    this.inputDeviceId = deviceId;
+  }
+
+  /** The selected playback device id, or `null` for the system default. */
+  getOutputDeviceId(): string | null {
+    return this.outputDeviceId;
+  }
+
+  /**
+   * Route playback through the given output device. No-op when the browser does
+   * not support `AudioContext.setSinkId`.
+   */
+  setOutputDeviceId(deviceId: string | null): void {
+    this.outputDeviceId = deviceId;
+    void this.applyOutputDevice();
   }
 
   // --- Audio file store ---------------------------------------------------
@@ -767,11 +804,18 @@ export class AudioEngine {
       this.context = this.contextFactory();
       this.masterGain = this.context.createGain();
       this.masterGain.connect(this.context.destination);
+      void this.applyOutputDevice();
     }
     if (this.context.state === "suspended") {
       void this.context.resume();
     }
     return this.context;
+  }
+
+  private async applyOutputDevice(): Promise<void> {
+    const ctx = this.context;
+    if (!ctx) return;
+    await applyAudioOutputDevice(ctx, this.outputDeviceId);
   }
 
   /**
