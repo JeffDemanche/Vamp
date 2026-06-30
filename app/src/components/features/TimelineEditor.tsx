@@ -48,7 +48,7 @@ function TimelineEditorInner({ projectId }: { projectId: string }) {
  */
 function TimelineEditor({ projectId }: { projectId: string }) {
   return (
-    <AudioEngineProvider>
+    <AudioEngineProvider projectId={projectId}>
       <RecordingController projectId={projectId}>
         <div className="flex h-full flex-col">
           <TimelineToolbar />

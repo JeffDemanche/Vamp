@@ -65,6 +65,12 @@ export const ProjectQuery = graphql(`
             downloadUrl
           }
         }
+        audios {
+          _id
+          filename
+          uploadStatus
+          downloadUrl
+        }
       }
     }
     projectUser(projectId: $id) {

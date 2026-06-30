@@ -16,6 +16,8 @@ export interface AddTrackData {
 
 /** Initial content to seed onto a new {@link ProjectData}. */
 export interface CreateProjectDataInput {
+  /** `_id` of the owning {@link Project} (stored as a back-reference). */
+  project: string;
   tracks?: CreateProjectTrackData[];
 }
 
@@ -40,8 +42,11 @@ export class ProjectDataRepository {
     return ProjectDataModel.findById(id).lean<ProjectData>().exec();
   }
 
-  async create(input: CreateProjectDataInput = {}): Promise<ProjectData> {
-    const doc = await ProjectDataModel.create({ tracks: input.tracks ?? [] });
+  async create(input: CreateProjectDataInput): Promise<ProjectData> {
+    const doc = await ProjectDataModel.create({
+      project: input.project,
+      tracks: input.tracks ?? [],
+    });
     return doc.toObject<ProjectData>();
   }
 

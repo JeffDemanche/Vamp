@@ -104,6 +104,7 @@ type ProjectClip {
 
 type ProjectData {
   _id: ID!
+  audios: [ProjectAudio!]!
   clips: [ProjectClip!]!
   createdAt: DateTimeISO!
   tracks: [ProjectTrack!]!

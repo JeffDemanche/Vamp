@@ -3,6 +3,7 @@ import { buildSchema } from "type-graphql";
 import { AuthResolver } from "./resolvers/AuthResolver";
 import { ProjectAudioResolver } from "./resolvers/ProjectAudioResolver";
 import { ProjectClipResolver } from "./resolvers/ProjectClipResolver";
+import { ProjectDataResolver } from "./resolvers/ProjectDataResolver";
 import { ProjectResolver } from "./resolvers/ProjectResolver";
 import { ProjectTrackResolver } from "./resolvers/ProjectTrackResolver";
 import { ProjectUserResolver } from "./resolvers/ProjectUserResolver";
@@ -21,6 +22,7 @@ export async function createSchema(
       AuthResolver,
       UserResolver,
       ProjectResolver,
+      ProjectDataResolver,
       ProjectUserResolver,
       ProjectAudioResolver,
       ProjectClipResolver,

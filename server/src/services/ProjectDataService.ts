@@ -36,11 +36,13 @@ export class ProjectDataService {
   }
 
   /**
-   * Provision a new {@link ProjectData}, seeded with a single starter track
-   * owned by `creatorId` (the project's creator).
+   * Provision a new {@link ProjectData} for `projectId`, seeded with a single
+   * starter track owned by `creatorId` (the project's creator). The owning
+   * project id is stored as a back-reference so its audios can be resolved.
    */
-  create(creatorId: string): Promise<ProjectData> {
+  create(projectId: string, creatorId: string): Promise<ProjectData> {
     return this.projectData.create({
+      project: projectId,
       tracks: [{ name: "Track 1", creator: creatorId }],
     });
   }

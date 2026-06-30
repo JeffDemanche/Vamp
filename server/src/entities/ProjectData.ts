@@ -1,5 +1,9 @@
-import { getModelForClass, prop, PropType } from "@typegoose/typegoose";
+import { getModelForClass, prop, PropType, type Ref } from "@typegoose/typegoose";
 import { Field, ID, ObjectType } from "type-graphql";
+// `Project` references `ProjectData` at runtime, so import the type only and
+// reference the model by name in `ref` to avoid a circular runtime import that
+// would break eager schema building.
+import type { Project } from "./Project";
 import { ProjectClip } from "./ProjectClip";
 import { ProjectTrack } from "./ProjectTrack";
 
@@ -14,6 +18,15 @@ import { ProjectTrack } from "./ProjectTrack";
 export class ProjectData {
   @Field(() => ID)
   readonly _id!: string;
+
+  /**
+   * Back-reference to the owning {@link Project}. Stored only (no `@Field`,
+   * following the codebase convention for `Ref`s); used by the `audios` field
+   * resolver to load every {@link ProjectAudio} belonging to the project
+   * without walking the timeline's clips.
+   */
+  @prop({ ref: "Project", required: true })
+  project!: Ref<Project>;
 
   @Field(() => [ProjectTrack])
   @prop({ type: () => ProjectTrack, default: [] }, PropType.ARRAY)
