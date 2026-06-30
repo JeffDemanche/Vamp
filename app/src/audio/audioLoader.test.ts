@@ -3,7 +3,7 @@ import {
   ensureAudioLoaded,
   resetAudioLoaderForTests,
 } from "./audioLoader";
-import { filterReadyAudios, toAudioEngineClip } from "./clipMapping";
+import { filterReadyAudios, toAudioEngineClip, collectProjectAudios } from "./clipMapping";
 
 describe("clipMapping", () => {
   const readyAudio = {
@@ -91,6 +91,42 @@ describe("clipMapping", () => {
       readyAudio,
       audio2,
     ]);
+  });
+
+  it("merges library audios with clip-referenced audios", () => {
+    const libraryAudio = {
+      _id: "audio-lib",
+      uploadStatus: "READY",
+      downloadUrl: "https://example.com/lib",
+    };
+    const clipOnlyAudio = {
+      _id: "audio-clip",
+      uploadStatus: "READY",
+      downloadUrl: "https://example.com/clip",
+    };
+    const pendingClipAudio = {
+      _id: "audio-pending",
+      uploadStatus: "PENDING",
+      downloadUrl: null,
+    };
+    expect(
+      collectProjectAudios([libraryAudio], [
+        {
+          _id: "clip-1",
+          start: 0,
+          duration: 100,
+          audioOffset: 0,
+          audio: clipOnlyAudio,
+        },
+        {
+          _id: "clip-2",
+          start: 100,
+          duration: 50,
+          audioOffset: 0,
+          audio: pendingClipAudio,
+        },
+      ]),
+    ).toEqual([libraryAudio, clipOnlyAudio]);
   });
 });
 

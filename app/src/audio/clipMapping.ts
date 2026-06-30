@@ -53,3 +53,22 @@ export function filterReadyAudios(
 ): LoadableProjectAudio[] {
   return audios.filter((audio) => audio.uploadStatus === "READY");
 }
+
+/**
+ * Every distinct {@link ProjectAudio} the engine may need for the current
+ * project — the library list plus any audio referenced by a clip. Clip-only
+ * audios appear when the Apollo cache has been updated with a new clip but not
+ * yet merged into `projectData.audios` (e.g. right after recording).
+ */
+export function collectProjectAudios(
+  audios: readonly LoadableProjectAudio[],
+  clips: readonly LoadableProjectClip[],
+): LoadableProjectAudio[] {
+  const byId = new Map<string, LoadableProjectAudio>();
+  for (const audio of audios) byId.set(audio._id, audio);
+  for (const clip of clips) {
+    const audio = clip.audio;
+    if (audio) byId.set(audio._id, audio);
+  }
+  return filterReadyAudios([...byId.values()]);
+}

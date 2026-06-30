@@ -196,15 +196,20 @@ export function RecordingController({
     }
     try {
       const { duration, mode, loopLength } = clipPlacementFromRecording(result)
-      await uploadAudioAndCreateClip(client, result.blob, {
-        projectId,
-        trackId: finishedRecording.trackId,
-        start: result.startSample,
-        duration,
-        audioOffset: 0,
-        mode,
-        loopLength,
-      })
+      await uploadAudioAndCreateClip(
+        client,
+        result.blob,
+        {
+          projectId,
+          trackId: finishedRecording.trackId,
+          start: result.startSample,
+          duration,
+          audioOffset: 0,
+          mode,
+          loopLength,
+        },
+        { engine },
+      )
     } catch (err) {
       logError("Failed to save the recording", err)
       setError("Couldn't save the recording.")

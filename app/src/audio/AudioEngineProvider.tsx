@@ -5,7 +5,7 @@ import { ProjectQuery } from "@/projects/queries";
 import { useTimelinePlayback, useTimelineViewport } from "@/state/timeline";
 import { ensureAudioLoaded } from "./audioLoader";
 import { AudioEngine, type AudioEngineState } from "./AudioEngine";
-import { filterReadyAudios, toAudioEngineClip } from "./clipMapping";
+import { collectProjectAudios, toAudioEngineClip } from "./clipMapping";
 
 /**
  * Owns a single {@link AudioEngine} instance scoped to one timeline editor and
@@ -60,7 +60,7 @@ export function AudioEngineProvider({
     let cancelled = false;
 
     void (async () => {
-      for (const audio of filterReadyAudios(audios)) {
+      for (const audio of collectProjectAudios(audios, clips)) {
         try {
           await ensureAudioLoaded(engine, audio);
         } catch (err) {
