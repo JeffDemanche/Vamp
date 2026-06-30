@@ -10,6 +10,7 @@ import { useTimelineCoords } from "@/components/composites/timeline"
 import { ClipWaveform } from "@/components/features/ClipWaveform"
 import { RecordingClip } from "@/components/features/RecordingClip"
 import {
+  ClipModeBadge,
   TimelineClip,
   type TimelineClipData,
 } from "@/components/features/TimelineClip"
@@ -57,11 +58,18 @@ function ClipDragPreview({
         height: SWIMLANE_HEIGHT,
       }}
     >
-        <Clip variant="standard" label={clip.audio.filename ?? "Clip"} selected>
+        <Clip
+          variant="standard"
+          label={clip.audio.filename ?? "Clip"}
+          badge={<ClipModeBadge clip={clip} />}
+          selected
+        >
           <ClipWaveform
             audioId={clip.audio._id}
             audioOffset={clip.audioOffset}
             duration={clip.duration}
+            mode={clip.mode}
+            loopLength={clip.audio.loopLength}
             selected
             hovered={false}
           />

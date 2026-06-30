@@ -69,6 +69,8 @@ export const ProjectQuery = graphql(`
           _id
           start
           duration
+          maxDuration
+          mode
           audioOffset
           track
           audio {
@@ -76,6 +78,7 @@ export const ProjectQuery = graphql(`
             filename
             uploadStatus
             downloadUrl
+            loopLength
           }
         }
         audios {
@@ -83,6 +86,7 @@ export const ProjectQuery = graphql(`
           filename
           uploadStatus
           downloadUrl
+          loopLength
         }
       }
     }
@@ -185,6 +189,7 @@ export const CreateAudioUploadMutation = graphql(`
         key
         contentType
         uploadStatus
+        loopLength
       }
     }
   }
@@ -201,6 +206,8 @@ export const CreateClipMutation = graphql(`
       _id
       start
       duration
+      maxDuration
+      mode
       audioOffset
       track
       audio {
@@ -208,6 +215,7 @@ export const CreateClipMutation = graphql(`
         filename
         uploadStatus
         downloadUrl
+        loopLength
       }
     }
   }
@@ -226,6 +234,8 @@ export const UpdateClipMutation = graphql(`
       _id
       start
       duration
+      maxDuration
+      mode
       audioOffset
       track
       audio {
@@ -233,6 +243,7 @@ export const UpdateClipMutation = graphql(`
         filename
         uploadStatus
         downloadUrl
+        loopLength
       }
     }
   }
@@ -253,6 +264,8 @@ export const ArchiveClipsMutation = graphql(`
         _id
         start
         duration
+        maxDuration
+        mode
         audioOffset
         track
         audio {
@@ -260,6 +273,7 @@ export const ArchiveClipsMutation = graphql(`
           filename
           uploadStatus
           downloadUrl
+          loopLength
         }
       }
     }

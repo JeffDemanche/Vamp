@@ -9,6 +9,8 @@ export interface CreateProjectAudioData {
   key: string;
   contentType: string;
   filename?: string;
+  /** Loop length (samples) active when this take was recorded over a loop. */
+  loopLength?: number;
   creator: string;
 }
 
@@ -47,6 +49,7 @@ export class ProjectAudioRepository {
       key: data.key,
       contentType: data.contentType,
       filename: data.filename,
+      loopLength: data.loopLength,
       creator: data.creator,
       uploadStatus: AudioUploadStatus.PENDING,
     });

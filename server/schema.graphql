@@ -14,9 +14,16 @@ enum AudioUploadStatus {
   READY
 }
 
+"""How a ProjectClip schedules its underlying audio for playback."""
+enum ClipMode {
+  FLAT
+  STACKED
+}
+
 input CreateAudioUploadInput {
   contentType: String!
   filename: String
+  loopLength: Int
   projectId: ID!
 }
 
@@ -29,6 +36,7 @@ input CreateClipInput {
   audioId: ID!
   audioOffset: Int! = 0
   duration: Int!
+  mode: ClipMode! = FLAT
   projectId: ID!
   start: Int!
   trackId: ID!
@@ -96,6 +104,7 @@ type ProjectAudio {
   downloadUrl: String
   filename: String
   key: String!
+  loopLength: Int
   uploadStatus: AudioUploadStatus!
 }
 
@@ -105,6 +114,8 @@ type ProjectClip {
   audioOffset: Int!
   createdAt: DateTimeISO!
   duration: Int!
+  maxDuration: Int!
+  mode: ClipMode!
   start: Int!
   track: ID!
 }
@@ -167,6 +178,7 @@ input RegisterInput {
 
 input UpdateClipInput {
   clipId: ID!
+  duration: Int
   projectId: ID!
   start: Int
   track: ID

@@ -44,6 +44,8 @@ const UPDATE_CLIP = /* GraphQL */ `
     updateClip(input: $input) {
       _id
       start
+      duration
+      maxDuration
       track
     }
   }
@@ -112,6 +114,8 @@ async function seedClips(
     _id: new Types.ObjectId().toHexString(),
     start: i * 1000,
     duration: 1000,
+    maxDuration: 1000,
+    mode: "FLAT",
     audioOffset: 0,
     track: trackId,
     audio: new Types.ObjectId().toHexString(),
@@ -190,6 +194,46 @@ describe("ProjectClip API (updateClip)", () => {
     const stored = data?.clips.find((c) => String(c._id) === clipA);
     expect(String(stored?.track)).toBe(trackB);
     expect(stored?.start).toBe(12000);
+  });
+
+  it("clamps duration to maxDuration when shortening a clip", async () => {
+    const ownerId = await createUser("owner", "owner@example.com");
+    const { projectId, projectDataId, trackId } = await createProject(ownerId);
+    const [clipA] = await seedClips(projectDataId, trackId, ownerId, 1);
+
+    const res = await execute<{
+      updateClip: { _id: string; duration: number; maxDuration: number };
+    }>(
+      stack.apollo,
+      UPDATE_CLIP,
+      { input: { projectId, clipId: clipA, duration: 500 } },
+      asUser(ownerId),
+    );
+
+    expect(res.errors).toBeUndefined();
+    expect(res.data!.updateClip).toMatchObject({
+      _id: clipA,
+      duration: 500,
+      maxDuration: 1000,
+    });
+  });
+
+  it("rejects lengthening a clip past maxDuration", async () => {
+    const ownerId = await createUser("owner", "owner@example.com");
+    const { projectId, projectDataId, trackId } = await createProject(ownerId);
+    const [clipA] = await seedClips(projectDataId, trackId, ownerId, 1);
+
+    const res = await execute<{
+      updateClip: { _id: string; duration: number; maxDuration: number };
+    }>(
+      stack.apollo,
+      UPDATE_CLIP,
+      { input: { projectId, clipId: clipA, duration: 2000 } },
+      asUser(ownerId),
+    );
+
+    expect(res.errors).toBeUndefined();
+    expect(res.data!.updateClip.duration).toBe(1000);
   });
 
   it("requires authentication to move a clip", async () => {

@@ -1,5 +1,5 @@
 import { Types } from "mongoose";
-import type { ProjectClip } from "../entities/ProjectClip";
+import type { ClipMode, ProjectClip } from "../entities/ProjectClip";
 import { ProjectData, ProjectDataModel } from "../entities/ProjectData";
 
 /** An embedded track to seed onto a new {@link ProjectData}. */
@@ -25,6 +25,8 @@ export interface CreateProjectDataInput {
 export interface AddClipData {
   start: number;
   duration: number;
+  maxDuration: number;
+  mode: ClipMode;
   audioOffset: number;
   /** `_id` of the embedded `ProjectTrack` the clip lives on. */
   track: string;
@@ -40,6 +42,8 @@ export interface AddClipData {
 export interface UpdateClipData {
   /** New timeline start position, in samples. */
   start?: number;
+  /** New clip length, in samples. Clamped to `maxDuration` by the service. */
+  duration?: number;
   /** `_id` of the `ProjectTrack` the clip should now live on. */
   track?: string;
 }
@@ -125,6 +129,7 @@ export class ProjectDataRepository {
   ): Promise<ProjectClip> {
     const set: Record<string, number | string> = {};
     if (data.start !== undefined) set["clips.$[clip].start"] = data.start;
+    if (data.duration !== undefined) set["clips.$[clip].duration"] = data.duration;
     if (data.track !== undefined) set["clips.$[clip].track"] = data.track;
 
     if (Object.keys(set).length === 0) {

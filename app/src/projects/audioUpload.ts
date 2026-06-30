@@ -16,6 +16,10 @@ export interface NewClipPlacement {
   duration: number;
   /** Offset into the underlying audio to begin at, in samples. Defaults to 0. */
   audioOffset?: number;
+  /** How the clip schedules its underlying audio. Defaults to `FLAT`. */
+  mode?: "FLAT" | "STACKED";
+  /** Loop length (samples) for stacked recordings. Stored on the audio record. */
+  loopLength?: number;
 }
 
 /**
@@ -41,7 +45,7 @@ export async function uploadAudioAndCreateClip(
   const uploadResult = await client.mutate({
     mutation: CreateAudioUploadMutation,
     variables: {
-      input: { projectId: placement.projectId, contentType, filename },
+      input: { projectId: placement.projectId, contentType, filename, loopLength: placement.loopLength },
     },
   });
 
@@ -67,6 +71,7 @@ export async function uploadAudioAndCreateClip(
         start: placement.start,
         duration: placement.duration,
         audioOffset: placement.audioOffset ?? 0,
+        mode: placement.mode,
       },
     },
     // Append the new clip into the cached `ProjectQuery` so the timeline lanes

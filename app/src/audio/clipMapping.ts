@@ -1,10 +1,12 @@
-import type { AudioEngineClip } from "./AudioEngine";
+import type { AudioEngineClip, ClipSchedulingMode } from "./AudioEngine";
 
 /** Minimal `ProjectAudio` shape needed to load bytes into the engine. */
 export type LoadableProjectAudio = {
   _id: string;
   uploadStatus: string;
   downloadUrl?: string | null;
+  /** Loop length (samples) for stacked scheduling. */
+  loopLength?: number | null;
 };
 
 /** Minimal `ProjectClip` shape needed to derive engine clips. */
@@ -13,8 +15,13 @@ export type LoadableProjectClip = {
   start: number;
   duration: number;
   audioOffset: number;
+  mode?: string | null;
   audio?: LoadableProjectAudio | null;
 };
+
+function toSchedulingMode(mode: string | null | undefined): ClipSchedulingMode {
+  return mode === "STACKED" ? "stacked" : "flat";
+}
 
 /**
  * Map a hydrated `ProjectClip` into the shape the {@link AudioEngine} schedules
@@ -31,6 +38,8 @@ export function toAudioEngineClip(
     audioId: audio._id,
     start: clip.start,
     duration: clip.duration,
+    mode: toSchedulingMode(clip.mode),
+    loopLength: audio.loopLength ?? undefined,
     offset: clip.audioOffset,
   };
 }

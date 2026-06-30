@@ -1,4 +1,5 @@
 import type { ProjectClip } from "../entities/ProjectClip";
+import { ClipMode } from "../entities/ProjectClip";
 import type { ProjectData } from "../entities/ProjectData";
 import { refToId } from "../lib/ref";
 import type { ProjectAudioService } from "./ProjectAudioService";
@@ -16,6 +17,8 @@ export interface CreateClipInput {
   start: number;
   /** Clip length, in samples. */
   duration: number;
+  /** How the clip schedules its underlying audio. Defaults to `FLAT`. */
+  mode?: ClipMode;
   /** Offset into the underlying audio to begin at, in samples. */
   audioOffset: number;
   creatorId: string;
@@ -35,6 +38,8 @@ export interface UpdateClipInput {
   clipId: string;
   /** New timeline start position, in samples. Omit to leave unchanged. */
   start?: number;
+  /** New clip length, in samples. Omit to leave unchanged. Clamped to `maxDuration`. */
+  duration?: number;
   /** `_id` of the `ProjectTrack` the clip should move to. Omit to leave unchanged. */
   track?: string;
 }
@@ -70,6 +75,8 @@ export class ProjectClipService {
     return this.projectData.addClip(refToId(project.projectData), {
       start: input.start,
       duration: input.duration,
+      maxDuration: input.duration,
+      mode: input.mode ?? ClipMode.FLAT,
       audioOffset: input.audioOffset,
       track: input.trackId,
       audio: input.audioId,
@@ -87,8 +94,19 @@ export class ProjectClipService {
     const project = await this.projects.findById(input.projectId);
     if (!project) throw new Error(`Project not found: ${input.projectId}`);
 
-    return this.projectData.updateClip(refToId(project.projectData), input.clipId, {
+    const projectDataId = refToId(project.projectData);
+    let duration = input.duration;
+    if (duration !== undefined) {
+      const data = await this.projectData.findById(projectDataId);
+      if (!data) throw new Error(`ProjectData not found: ${projectDataId}`);
+      const clip = data.clips.find((c) => String(c._id) === input.clipId);
+      if (!clip) throw new Error(`Clip not found: ${input.clipId}`);
+      duration = clampDuration(duration, clip.maxDuration);
+    }
+
+    return this.projectData.updateClip(projectDataId, input.clipId, {
       start: input.start,
+      duration,
       track: input.track,
     });
   }
@@ -109,4 +127,9 @@ export class ProjectClipService {
       input.clipIds,
     );
   }
+}
+
+/** Clamp a requested clip duration to `[1, maxDuration]`. */
+function clampDuration(duration: number, maxDuration: number): number {
+  return Math.min(Math.max(Math.round(duration), 1), maxDuration);
 }

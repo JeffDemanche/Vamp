@@ -5,6 +5,7 @@ import {
   FieldResolver,
   ID,
   InputType,
+  Int,
   Mutation,
   ObjectType,
   Query,
@@ -26,6 +27,13 @@ export class CreateAudioUploadInput {
   /** Original filename, retained for display. Optional. */
   @Field({ nullable: true })
   filename?: string;
+
+  /**
+   * Loop length (samples) active when this take was recorded over a looping
+   * transport. Optional — omit for non-looped takes and file imports.
+   */
+  @Field(() => Int, { nullable: true })
+  loopLength?: number;
 }
 
 /**
@@ -73,6 +81,7 @@ export class ProjectAudioResolver {
       creatorId,
       contentType: input.contentType,
       filename: input.filename,
+      loopLength: input.loopLength ?? undefined,
     });
   }
 

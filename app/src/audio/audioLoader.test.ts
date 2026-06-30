@@ -26,7 +26,30 @@ describe("clipMapping", () => {
       audioId: "audio-1",
       start: 100,
       duration: 500,
+      mode: "flat",
+      loopLength: undefined,
       offset: 50,
+    });
+  });
+
+  it("maps STACKED mode and loopLength from the audio record", () => {
+    expect(
+      toAudioEngineClip({
+        _id: "clip-1",
+        start: 0,
+        duration: 3000,
+        audioOffset: 0,
+        mode: "STACKED",
+        audio: { ...readyAudio, loopLength: 1000 },
+      }),
+    ).toEqual({
+      id: "clip-1",
+      audioId: "audio-1",
+      start: 0,
+      duration: 3000,
+      mode: "stacked",
+      loopLength: 1000,
+      offset: 0,
     });
   });
 

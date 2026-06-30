@@ -11,6 +11,8 @@ export interface CreateAudioUploadInput {
   creatorId: string;
   contentType: string;
   filename?: string;
+  /** Loop length (samples) active when this take was recorded over a loop. */
+  loopLength?: number;
 }
 
 /**
@@ -68,6 +70,7 @@ export class ProjectAudioService {
       key,
       contentType: input.contentType,
       filename: input.filename,
+      loopLength: input.loopLength,
       creator: input.creatorId,
     });
 

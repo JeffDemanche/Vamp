@@ -1,4 +1,4 @@
-import { AudioEngine, type AudioEngineState } from "./AudioEngine";
+import { AudioEngine, type AudioEngineClip, type AudioEngineState } from "./AudioEngine";
 
 /**
  * jsdom has no Web Audio API, so we drive the engine with a hand-rolled fake
@@ -137,6 +137,12 @@ function stateWith(overrides: Partial<AudioEngineState> = {}): AudioEngineState 
   };
 }
 
+function flatClip(
+  clip: Omit<AudioEngineClip, "mode"> & Partial<Pick<AudioEngineClip, "mode">>,
+): AudioEngineClip {
+  return { mode: "flat", ...clip };
+}
+
 const fakeBuffer = { duration: 2 } as AudioBuffer;
 
 describe("AudioEngine", () => {
@@ -152,8 +158,8 @@ describe("AudioEngine", () => {
     engine.update(
       stateWith({
         clips: [
-          { id: "c1", audioId: "a1", start: 100, duration: 50, offset: 10 },
-          { id: "c2", audioId: "a2", start: 200, duration: 25 },
+          flatClip({ id: "c1", audioId: "a1", start: 100, duration: 50, offset: 10 }),
+          flatClip({ id: "c2", audioId: "a2", start: 200, duration: 25 }),
         ],
       }),
     );
@@ -161,6 +167,56 @@ describe("AudioEngine", () => {
     expect(engine.audioEvents).toEqual([
       { clipId: "c1", audioId: "a1", startSample: 100, endSample: 150, bufferOffset: 10 },
       { clipId: "c2", audioId: "a2", startSample: 200, endSample: 225, bufferOffset: 0 },
+    ]);
+  });
+
+  it("overlays a stacked clip's recorded loop passes within its loop region", () => {
+    const { engine } = makeEngine();
+    // A 3-second recording (three 1s passes) overlaid within a 1s loop region.
+    engine.setAudioBuffer("a1", { duration: 3 } as AudioBuffer);
+    engine.update(
+      stateWith({
+        clips: [
+          {
+            id: "c1",
+            audioId: "a1",
+            start: 0,
+            duration: SAMPLE_RATE,
+            mode: "stacked",
+            loopLength: SAMPLE_RATE,
+          },
+        ],
+      }),
+    );
+
+    // Three passes, all sounding over the same one-region window but reading a
+    // different loop-length slice of the recording.
+    expect(engine.audioEvents).toEqual([
+      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE, bufferOffset: 0 },
+      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE, bufferOffset: SAMPLE_RATE },
+      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE, bufferOffset: 2 * SAMPLE_RATE },
+    ]);
+  });
+
+  it("emits a single stacked event until the recording's buffer has loaded", () => {
+    const { engine } = makeEngine();
+    engine.update(
+      stateWith({
+        clips: [
+          {
+            id: "c1",
+            audioId: "a1",
+            start: 0,
+            duration: SAMPLE_RATE,
+            mode: "stacked",
+            loopLength: SAMPLE_RATE,
+          },
+        ],
+      }),
+    );
+
+    expect(engine.audioEvents).toEqual([
+      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE, bufferOffset: 0 },
     ]);
   });
 
@@ -176,7 +232,7 @@ describe("AudioEngine", () => {
     engine.update(
       stateWith({
         playStart: 0,
-        clips: [{ id: "c1", audioId: "a1", start: SAMPLE_RATE, duration: SAMPLE_RATE }],
+        clips: [flatClip({ id: "c1", audioId: "a1", start: SAMPLE_RATE, duration: SAMPLE_RATE })],
       }),
     );
 
@@ -191,9 +247,43 @@ describe("AudioEngine", () => {
     expect(call?.duration).toBeCloseTo(1);
   });
 
+  it("schedules an overlaid source per recorded loop pass for a stacked clip", () => {
+    const { ctx, engine } = makeEngine();
+    // A 2-second recording (two 1s passes) overlaid within a 1s loop region.
+    engine.setAudioBuffer("a1", { duration: 2 } as AudioBuffer);
+    const loopLength = SAMPLE_RATE;
+    engine.update(
+      stateWith({
+        playStart: 0,
+        clips: [
+          {
+            id: "c1",
+            audioId: "a1",
+            start: 0,
+            duration: SAMPLE_RATE,
+            mode: "stacked",
+            loopLength,
+          },
+        ],
+      }),
+    );
+
+    engine.play();
+
+    // Both passes begin together at the clip start and last one loop region,
+    // each reading a different loop-length slice of the recording.
+    expect(ctx.sources).toHaveLength(2);
+    expect(ctx.sources[0].startCall?.when).toBeCloseTo(0);
+    expect(ctx.sources[0].startCall?.offset).toBeCloseTo(0);
+    expect(ctx.sources[0].startCall?.duration).toBeCloseTo(1);
+    expect(ctx.sources[1].startCall?.when).toBeCloseTo(0);
+    expect(ctx.sources[1].startCall?.offset).toBeCloseTo(1);
+    expect(ctx.sources[1].startCall?.duration).toBeCloseTo(1);
+  });
+
   it("skips clips whose audio is not loaded", () => {
     const { ctx, engine } = makeEngine();
-    engine.update(stateWith({ clips: [{ id: "c1", audioId: "missing", start: 0, duration: 100 }] }));
+    engine.update(stateWith({ clips: [flatClip({ id: "c1", audioId: "missing", start: 0, duration: 100 })] }));
     engine.play();
     expect(ctx.sources).toHaveLength(0);
   });
@@ -204,7 +294,7 @@ describe("AudioEngine", () => {
     engine.update(
       stateWith({
         playStart: SAMPLE_RATE, // half a second into the clip below
-        clips: [{ id: "c1", audioId: "a1", start: SAMPLE_RATE / 2, duration: SAMPLE_RATE * 4 }],
+        clips: [flatClip({ id: "c1", audioId: "a1", start: SAMPLE_RATE / 2, duration: SAMPLE_RATE * 4 })],
       }),
     );
 
@@ -247,7 +337,7 @@ describe("AudioEngine", () => {
   it("freezes the timecode where it stopped and stops sources", () => {
     const { ctx, engine } = makeEngine();
     engine.setAudioBuffer("a1", fakeBuffer);
-    engine.update(stateWith({ clips: [{ id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 }] }));
+    engine.update(stateWith({ clips: [flatClip({ id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 })] }));
     engine.play();
 
     ctx.currentTime += 1;
@@ -320,7 +410,7 @@ describe("AudioEngine", () => {
   it("re-schedules from the current position when updated mid-playback", () => {
     const { ctx, engine } = makeEngine();
     engine.setAudioBuffer("a1", fakeBuffer);
-    engine.update(stateWith({ clips: [{ id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 }] }));
+    engine.update(stateWith({ clips: [flatClip({ id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 })] }));
     engine.play();
 
     ctx.currentTime += 1;
@@ -331,8 +421,8 @@ describe("AudioEngine", () => {
     engine.update(
       stateWith({
         clips: [
-          { id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 },
-          { id: "c2", audioId: "a2", start: 0, duration: SAMPLE_RATE * 10 },
+          flatClip({ id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 }),
+          flatClip({ id: "c2", audioId: "a2", start: 0, duration: SAMPLE_RATE * 10 }),
         ],
       }),
     );
@@ -420,6 +510,28 @@ describe("AudioEngine", () => {
     expect(result.blob.size).toBeGreaterThan(0);
     expect(result.contentType).toBeTruthy();
     expect(engine.isRecording).toBe(false);
+  });
+
+  it("captures loopLength when recording with looping transport", async () => {
+    const { ctx, engine } = makeRecordingEngine();
+    engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: true }));
+
+    await engine.startRecording({ startPlayback: true });
+    ctx.currentTime += 2;
+    const result = await engine.stopRecording();
+
+    expect(result.loopLength).toBe(SAMPLE_RATE);
+  });
+
+  it("omits loopLength when not looping", async () => {
+    const { ctx, engine } = makeRecordingEngine();
+    engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: false }));
+
+    await engine.startRecording();
+    ctx.currentTime += 1;
+    const result = await engine.stopRecording();
+
+    expect(result.loopLength).toBeUndefined();
   });
 
   it("releases the microphone tracks when a recording stops", async () => {

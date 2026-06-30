@@ -177,9 +177,15 @@ export function RecordingController({
       await uploadAudioAndCreateClip(client, result.blob, {
         projectId,
         trackId: finishedRecording.trackId,
+        // A looped take is a stacked clip occupying exactly one loop region, so
+        // its timeline duration is the loop length (the recording itself spans
+        // several passes and is overlaid within that region); a non-looped take
+        // is a flat clip spanning the captured duration.
         start: result.startSample,
-        duration: result.durationSamples,
+        duration: result.loopLength ?? result.durationSamples,
         audioOffset: 0,
+        mode: result.loopLength ? "STACKED" : "FLAT",
+        loopLength: result.loopLength,
       })
     } catch (err) {
       logError("Failed to save the recording", err)

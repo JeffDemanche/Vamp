@@ -12,7 +12,7 @@ import {
 } from "type-graphql";
 import type { ServerContext } from "../context";
 import { ProjectAudio } from "../entities/ProjectAudio";
-import { ProjectClip } from "../entities/ProjectClip";
+import { ClipMode, ProjectClip } from "../entities/ProjectClip";
 import { ProjectData } from "../entities/ProjectData";
 import { refToId } from "../lib/ref";
 
@@ -36,6 +36,10 @@ export class CreateClipInput {
   /** Clip length, in samples. */
   @Field(() => Int)
   duration!: number;
+
+  /** How the clip schedules its underlying audio. Defaults to `FLAT`. */
+  @Field(() => ClipMode, { defaultValue: ClipMode.FLAT })
+  mode!: ClipMode;
 
   /** Offset into the underlying audio to begin at, in samples. Defaults to 0. */
   @Field(() => Int, { defaultValue: 0 })
@@ -64,6 +68,10 @@ export class UpdateClipInput {
   /** New timeline start position, in samples. Omit to leave unchanged. */
   @Field(() => Int, { nullable: true })
   start?: number | null;
+
+  /** New clip length, in samples. Omit to leave unchanged. Clamped to `maxDuration`. */
+  @Field(() => Int, { nullable: true })
+  duration?: number | null;
 
   /** `_id` of the `ProjectTrack` to move the clip onto. Omit to leave unchanged. */
   @Field(() => ID, { nullable: true })
@@ -96,6 +104,7 @@ export class ProjectClipResolver {
       start: input.start,
       duration: input.duration,
       audioOffset: input.audioOffset,
+      mode: input.mode,
       creatorId,
     });
   }
@@ -116,6 +125,7 @@ export class ProjectClipResolver {
       projectId: input.projectId,
       clipId: input.clipId,
       start: input.start ?? undefined,
+      duration: input.duration ?? undefined,
       track: input.track ?? undefined,
     });
   }
