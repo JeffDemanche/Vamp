@@ -54,25 +54,33 @@ export function useRecordingControls(): RecordingControls {
   return controls
 }
 
-/** Timeline placement for a finished take — exported for unit tests. */
-export function clipPlacementFromRecording(result: {
-  durationSamples: number
-  loopLength?: number
-}): {
+/**
+ * How a recording (live or finished) occupies the timeline. Flat takes span
+ * everything captured so far. Looped takes grow until the first loop point,
+ * then lock to one loop region (stacked mode) — matching persisted clip placement.
+ */
+export function recordingClipDisplay(
+  capturedSamples: number,
+  loopLength?: number | null,
+): {
   duration: number
   mode: "FLAT" | "STACKED"
   loopLength?: number
 } {
-  const { durationSamples, loopLength } = result
   if (!loopLength) {
-    return { duration: durationSamples, mode: "FLAT" }
+    return { duration: capturedSamples, mode: "FLAT" }
   }
-  // A looped take is a stacked clip occupying one loop region once the first
-  // loop point is reached; if the transport stopped earlier, span only what was
-  // captured (still stacked — loopLength is stored on the audio for scheduling).
   const duration =
-    durationSamples >= loopLength ? loopLength : durationSamples
+    capturedSamples >= loopLength ? loopLength : capturedSamples
   return { duration, mode: "STACKED", loopLength }
+}
+
+/** Timeline placement for a finished take — exported for unit tests. */
+export function clipPlacementFromRecording(result: {
+  durationSamples: number
+  loopLength?: number
+}) {
+  return recordingClipDisplay(result.durationSamples, result.loopLength)
 }
 
 /**
@@ -150,11 +158,11 @@ export function RecordingController({
         // Capture starts the transport in the same instant audio begins flowing
         // (so the take and the playhead share one anchor); only the jotai
         // recording state is flipped after, off the resolved startSample.
-        const { startSample } = await engine.startRecording({
+        const { startSample, loopLength } = await engine.startRecording({
           startPlayback: true,
         })
         setPermission("granted")
-        startRecording(selectedTrackId, startSample)
+        startRecording(selectedTrackId, startSample, loopLength)
       } catch (err) {
         if (isMicrophonePermissionDenied(err)) setPermission("denied")
         setError(describeMicrophoneError(err))

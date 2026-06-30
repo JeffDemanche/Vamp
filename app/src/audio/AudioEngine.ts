@@ -122,6 +122,7 @@ export type PlayingListener = (playing: boolean) => void;
  * — e.g. to draw its waveform once the bytes are available.
  */
 export type AudioStoreListener = () => void;
+type RecordingBufferListener = () => void;
 
 /** Creates the `AudioContext` the engine drives. Injectable for testing. */
 export type AudioContextFactory = () => AudioContext;
@@ -286,6 +287,19 @@ export class AudioEngine {
   /** Loop length (samples) captured when recording began, if looping. */
   private recordLoopLength: number | undefined;
 
+  /** Taps the mic stream for live waveform preview while recording. */
+  private recordingSource: MediaStreamAudioSourceNode | null = null;
+  private recordingProcessor: ScriptProcessorNode | null = null;
+  private recordingSilentGain: GainNode | null = null;
+  /** Mono PCM accumulated from the live mic tap, at the context sample rate. */
+  private recordingChannelData: Float32Array[] = [];
+  /** Cached resampled buffer returned by {@link getRecordingBuffer}. */
+  private recordingBufferCache: AudioBuffer | undefined;
+  private recordingBufferCacheSourceLength = 0;
+  private recordingBufferCacheSampleRate = 0;
+  private readonly recordingBufferListeners = new Set<RecordingBufferListener>();
+  private recordingBufferNotifyPending = false;
+
   constructor(options: AudioEngineOptions = {}) {
     this.contextFactory = options.contextFactory ?? defaultContextFactory;
     this.mediaStreamProvider =
@@ -411,7 +425,7 @@ export class AudioEngine {
    */
   async startRecording(
     options: { startPlayback?: boolean } = {},
-  ): Promise<{ startSample: number }> {
+  ): Promise<{ startSample: number; loopLength?: number }> {
     const { startPlayback = false } = options;
     if (this.mediaRecorder) {
       throw new Error("A recording is already in progress.");
@@ -437,8 +451,9 @@ export class AudioEngine {
     recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) this.recordedChunks.push(event.data);
     };
+    this.setupRecordingTap(ctx, stream);
 
-    return new Promise<{ startSample: number }>((resolve, reject) => {
+    return new Promise<{ startSample: number; loopLength?: number }>((resolve, reject) => {
       recorder.onstart = () => {
         // Start the transport in the very same instant capture begins (no-op if
         // already playing) so playback and the recording anchor to one audio
@@ -450,7 +465,10 @@ export class AudioEngine {
         const { loop, playStart, playEnd } = this.state;
         this.recordLoopLength =
           loop && playEnd > playStart ? playEnd - playStart : undefined;
-        resolve({ startSample: Math.round(this.recordStartSample) });
+        resolve({
+          startSample: Math.round(this.recordStartSample),
+          loopLength: this.recordLoopLength,
+        });
       };
       recorder.onerror = (event) => {
         this.cleanupRecording();
@@ -512,8 +530,82 @@ export class AudioEngine {
     return this.mediaRecorder !== null;
   }
 
+  /**
+   * How much audio has been captured so far during an active recording, in
+   * timeline samples. Measured on the audio clock from capture start (same
+   * basis as {@link stopRecording}), so it keeps increasing when the transport
+   * loops and the playhead wraps — unlike `timecode - startSample`.
+   */
+  getRecordingCapturedSamples(): number {
+    if (!this.mediaRecorder || !this.context) return 0;
+    const elapsedSeconds = Math.max(
+      0,
+      this.context.currentTime - this.recordStartContextTime,
+    );
+    return Math.round(elapsedSeconds * this.state.sampleRate);
+  }
+
+  /**
+   * The PCM captured so far during an active recording, resampled to the
+   * timeline `sampleRate`, or `undefined` when not recording / before the first
+   * frame lands. Used by the live `RecordingClip` waveform.
+   */
+  getRecordingBuffer(): AudioBuffer | undefined {
+    const ctx = this.context;
+    if (!ctx || !this.mediaRecorder) return undefined;
+    const src = this.recordingChannelData[0];
+    if (!src || src.length === 0) return undefined;
+
+    const timelineRate = this.state.sampleRate;
+    if (
+      this.recordingBufferCache &&
+      this.recordingBufferCacheSourceLength === src.length &&
+      this.recordingBufferCacheSampleRate === timelineRate
+    ) {
+      return this.recordingBufferCache;
+    }
+
+    const contextRate = ctx.sampleRate;
+    let buffer: AudioBuffer;
+    if (timelineRate === contextRate) {
+      buffer = ctx.createBuffer(1, src.length, timelineRate);
+      buffer.copyToChannel(new Float32Array(src), 0);
+    } else {
+      const outLength = Math.max(
+        1,
+        Math.round((src.length * timelineRate) / contextRate),
+      );
+      const out = new Float32Array(outLength);
+      for (let i = 0; i < outLength; i++) {
+        const srcPos = (i * contextRate) / timelineRate;
+        const idx = Math.floor(srcPos);
+        const frac = srcPos - idx;
+        const a = src[idx] ?? 0;
+        const b = src[idx + 1] ?? a;
+        out[i] = a + frac * (b - a);
+      }
+      buffer = ctx.createBuffer(1, outLength, timelineRate);
+      buffer.copyToChannel(out, 0);
+    }
+
+    this.recordingBufferCache = buffer;
+    this.recordingBufferCacheSourceLength = src.length;
+    this.recordingBufferCacheSampleRate = timelineRate;
+    return buffer;
+  }
+
+  /**
+   * Subscribe to live recording-buffer updates (PCM appended from the mic tap).
+   * Returns an unsubscribe fn.
+   */
+  subscribeRecordingBuffer(listener: RecordingBufferListener): () => void {
+    this.recordingBufferListeners.add(listener);
+    return () => this.recordingBufferListeners.delete(listener);
+  }
+
   /** Stop the recorder (if any) and release the microphone stream. */
   private cleanupRecording(): void {
+    this.teardownRecordingTap();
     if (this.recordingStream) {
       for (const track of this.recordingStream.getTracks()) track.stop();
       this.recordingStream = null;
@@ -567,6 +659,7 @@ export class AudioEngine {
     this.notifyAudioStore();
     this.listeners.clear();
     this.audioStoreListeners.clear();
+    this.recordingBufferListeners.clear();
     if (this.context) {
       void this.context.close();
       this.context = null;
@@ -728,6 +821,58 @@ export class AudioEngine {
 
   private notifyAudioStore(): void {
     for (const listener of this.audioStoreListeners) listener();
+  }
+
+  private setupRecordingTap(ctx: AudioContext, stream: MediaStream): void {
+    const source = ctx.createMediaStreamSource(stream);
+    const processor = ctx.createScriptProcessor(4096, 1, 1);
+    const silent = ctx.createGain();
+    silent.gain.value = 0;
+    source.connect(processor);
+    processor.connect(silent);
+    silent.connect(ctx.destination);
+
+    this.recordingSource = source;
+    this.recordingProcessor = processor;
+    this.recordingSilentGain = silent;
+    this.recordingChannelData = [new Float32Array(0)];
+
+    processor.onaudioprocess = (event) => {
+      if (!this.mediaRecorder) return;
+      this.appendRecordingSamples(event.inputBuffer.getChannelData(0));
+    };
+  }
+
+  private teardownRecordingTap(): void {
+    this.recordingProcessor?.disconnect();
+    this.recordingSource?.disconnect();
+    this.recordingSilentGain?.disconnect();
+    this.recordingProcessor = null;
+    this.recordingSource = null;
+    this.recordingSilentGain = null;
+    this.recordingChannelData = [];
+    this.recordingBufferCache = undefined;
+    this.recordingBufferCacheSourceLength = 0;
+    this.recordingBufferCacheSampleRate = 0;
+    this.notifyRecordingBuffer();
+  }
+
+  private appendRecordingSamples(input: Float32Array): void {
+    const channel = this.recordingChannelData[0] ?? new Float32Array(0);
+    const next = new Float32Array(channel.length + input.length);
+    next.set(channel);
+    next.set(input, channel.length);
+    this.recordingChannelData[0] = next;
+    this.notifyRecordingBuffer();
+  }
+
+  private notifyRecordingBuffer(): void {
+    if (this.recordingBufferNotifyPending) return;
+    this.recordingBufferNotifyPending = true;
+    requestAnimationFrame(() => {
+      this.recordingBufferNotifyPending = false;
+      for (const listener of this.recordingBufferListeners) listener();
+    });
   }
 }
 

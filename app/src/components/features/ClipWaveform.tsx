@@ -54,14 +54,18 @@ function resolveWaveColor(token: string, alphaPercent: number): string {
  */
 export function ClipWaveform({
   audioId,
+  buffer: bufferOverride,
   audioOffset,
   duration,
   mode,
   loopLength,
   selected,
   hovered,
+  variant = "standard",
 }: {
-  audioId: string
+  audioId?: string
+  /** When set, draws from this buffer instead of fetching `audioId` from the engine. */
+  buffer?: AudioBuffer | null
   /** Sample offset into the source audio where the clip's window begins. */
   audioOffset: number
   /** Clip length, in samples — the width of the audio window shown. */
@@ -72,8 +76,11 @@ export function ClipWaveform({
   loopLength?: number | null
   selected: boolean
   hovered: boolean
+  /** Colour scheme for the waveform (`recording` uses destructive tokens). */
+  variant?: "standard" | "recording"
 }) {
-  const buffer = useAudioBuffer(audioId)
+  const bufferFromEngine = useAudioBuffer(bufferOverride ? null : audioId)
+  const buffer = bufferOverride ?? bufferFromEngine
   const { sampleRate } = useTimelineViewport()
 
   // One peaks array per stacked loop pass (just one for a flat clip), each
@@ -105,12 +112,18 @@ export function ClipWaveform({
   // one layer, so its colour is unchanged).
   const layerCount = layers?.length ?? 1
   const waveColor = React.useMemo(() => {
+    if (variant === "recording") {
+      return resolveWaveColor(
+        "--destructive-foreground",
+        WAVE_ALPHA.default / layerCount,
+      )
+    }
     if (selected)
       return resolveWaveColor("--primary-foreground", WAVE_ALPHA.selected / layerCount)
     if (hovered)
       return resolveWaveColor("--accent-foreground", WAVE_ALPHA.hovered / layerCount)
     return resolveWaveColor("--foreground", WAVE_ALPHA.default / layerCount)
-  }, [selected, hovered, layerCount])
+  }, [selected, hovered, layerCount, variant])
 
   if (!layers) return null
 

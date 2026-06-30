@@ -39,6 +39,7 @@ class FakeBufferSource {
 class FakeAudioContext {
   currentTime = 0;
   state: AudioContextState = "running";
+  sampleRate = SAMPLE_RATE;
   destination = {} as AudioDestinationNode;
   sources: FakeBufferSource[] = [];
   closed = false;
@@ -51,6 +52,38 @@ class FakeAudioContext {
     const source = new FakeBufferSource();
     this.sources.push(source);
     return source as unknown as AudioBufferSourceNode;
+  }
+
+  createMediaStreamSource(_stream: MediaStream) {
+    return {
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    } as unknown as MediaStreamAudioSourceNode;
+  }
+
+  createScriptProcessor(_bufferSize: number, _inputChannels: number, _outputChannels: number) {
+    const processor = {
+      onaudioprocess: null as ((event: AudioProcessingEvent) => void) | null,
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    };
+    return processor as unknown as ScriptProcessorNode;
+  }
+
+  createBuffer(channels: number, length: number, sampleRate: number) {
+    const channelData = Array.from({ length: channels }, () => new Float32Array(length));
+    return {
+      length,
+      duration: length / sampleRate,
+      numberOfChannels: channels,
+      sampleRate,
+      copyToChannel(source: Float32Array, channelNumber: number) {
+        channelData[channelNumber]?.set(source);
+      },
+      getChannelData(channelNumber: number) {
+        return channelData[channelNumber] ?? new Float32Array(0);
+      },
+    } as unknown as AudioBuffer;
   }
 
   decodeAudioData(_data: ArrayBuffer): Promise<AudioBuffer> {
@@ -114,6 +147,9 @@ function makeRecordingEngine() {
   const tracks = [{ stop: jest.fn() }];
   const stream = { getTracks: () => tracks } as unknown as MediaStream;
   const recorders: FakeMediaRecorder[] = [];
+  const recordingProcessors: Array<{
+    onaudioprocess: ((event: AudioProcessingEvent) => void) | null;
+  }> = [];
   const engine = new AudioEngine({
     contextFactory: () => ctx as unknown as AudioContext,
     mediaStreamProvider: () => Promise.resolve(stream),
@@ -123,7 +159,15 @@ function makeRecordingEngine() {
       return recorder as unknown as MediaRecorder;
     },
   });
-  return { ctx, engine, recorders, tracks };
+  const originalCreateScriptProcessor = ctx.createScriptProcessor.bind(ctx);
+  ctx.createScriptProcessor = (...args) => {
+    const processor = originalCreateScriptProcessor(...args) as unknown as {
+      onaudioprocess: ((event: AudioProcessingEvent) => void) | null;
+    };
+    recordingProcessors.push(processor);
+    return processor as unknown as ScriptProcessorNode;
+  };
+  return { ctx, engine, recorders, tracks, recordingProcessors };
 }
 
 function stateWith(overrides: Partial<AudioEngineState> = {}): AudioEngineState {
@@ -516,10 +560,11 @@ describe("AudioEngine", () => {
     const { ctx, engine } = makeRecordingEngine();
     engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: true }));
 
-    await engine.startRecording({ startPlayback: true });
+    const { loopLength } = await engine.startRecording({ startPlayback: true });
     ctx.currentTime += 2;
     const result = await engine.stopRecording();
 
+    expect(loopLength).toBe(SAMPLE_RATE);
     expect(result.loopLength).toBe(SAMPLE_RATE);
   });
 
@@ -527,11 +572,52 @@ describe("AudioEngine", () => {
     const { ctx, engine } = makeRecordingEngine();
     engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: false }));
 
-    await engine.startRecording();
+    const { loopLength } = await engine.startRecording();
     ctx.currentTime += 1;
     const result = await engine.stopRecording();
 
+    expect(loopLength).toBeUndefined();
     expect(result.loopLength).toBeUndefined();
+  });
+
+  it("measures capture length on the audio clock independent of playhead wrap", async () => {
+    const { ctx, engine } = makeRecordingEngine();
+    engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: true }));
+
+    await engine.startRecording({ startPlayback: true });
+    ctx.currentTime += 1;
+    expect(engine.getRecordingCapturedSamples()).toBeCloseTo(SAMPLE_RATE);
+    expect(engine.timecode).toBeCloseTo(SAMPLE_RATE);
+
+    // Loop wrap: playhead jumps back to playStart while capture continues.
+    (engine as unknown as { handleEnded(): void }).handleEnded();
+    ctx.currentTime += 0.25;
+    expect(engine.timecode).toBeCloseTo(0.25 * SAMPLE_RATE);
+    expect(engine.getRecordingCapturedSamples()).toBeCloseTo(1.25 * SAMPLE_RATE);
+
+    await engine.stopRecording();
+  });
+
+  it("exposes live PCM through getRecordingBuffer while recording", async () => {
+    const { engine, recordingProcessors } = makeRecordingEngine();
+    engine.update(stateWith());
+
+    await engine.startRecording();
+    expect(engine.getRecordingBuffer()).toBeUndefined();
+
+    const samples = new Float32Array(128).fill(0.5);
+    recordingProcessors[0]?.onaudioprocess?.({
+      inputBuffer: {
+        getChannelData: () => samples,
+      },
+    } as unknown as AudioProcessingEvent);
+
+    const first = engine.getRecordingBuffer();
+    expect(first?.length).toBe(128);
+    expect(engine.getRecordingBuffer()).toBe(first);
+
+    await engine.stopRecording();
+    expect(engine.getRecordingBuffer()).toBeUndefined();
   });
 
   it("releases the microphone tracks when a recording stops", async () => {

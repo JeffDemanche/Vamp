@@ -109,6 +109,48 @@ export function useAudioBuffer(audioId: string | null | undefined): AudioBuffer 
   );
 }
 
+/**
+ * The PCM captured so far during an active recording, resampled to the timeline
+ * sample rate, or `null` when not recording. Re-renders as the mic tap appends
+ * frames so the live `RecordingClip` waveform can track the take.
+ */
+export function useRecordingBuffer(): AudioBuffer | null {
+  const engine = useAudioEngine();
+  return React.useSyncExternalStore(
+    (onChange) => engine.subscribeRecordingBuffer(onChange),
+    () => engine.getRecordingBuffer() ?? null,
+  );
+}
+
+/**
+ * How much audio has been captured during the active recording, in timeline
+ * samples. Polled on `requestAnimationFrame` while `active` so the live
+ * `RecordingClip` width tracks capture progress even when the transport loops
+ * and the playhead wraps.
+ */
+export function useRecordingCapturedSamples(active: boolean): number {
+  const engine = useAudioEngine();
+  const [samples, setSamples] = React.useState(() =>
+    engine.getRecordingCapturedSamples(),
+  );
+
+  React.useEffect(() => {
+    if (!active) {
+      setSamples(engine.getRecordingCapturedSamples());
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      setSamples(engine.getRecordingCapturedSamples());
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [engine, active]);
+
+  return samples;
+}
+
 /** Subscribe to the engine's playing state, re-rendering when it flips. */
 export function useAudioEnginePlaying(): boolean {
   const engine = useAudioEngine();
