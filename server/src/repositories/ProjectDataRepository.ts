@@ -71,6 +71,37 @@ export class ProjectDataRepository {
   }
 
   /**
+   * Archive (soft-remove) the embedded clips with the given ids on a
+   * {@link ProjectData}, flipping their `archived` flag to `true` in a single
+   * update. The clips are kept in storage (the underlying take is never lost);
+   * they are simply hidden from the timeline. Returns the updated document.
+   * A no-op when `clipIds` is empty.
+   */
+  async archiveClips(
+    projectDataId: string,
+    clipIds: string[],
+  ): Promise<ProjectData> {
+    if (clipIds.length === 0) {
+      const existing = await this.findById(projectDataId);
+      if (!existing) throw new Error(`ProjectData not found: ${projectDataId}`);
+      return existing;
+    }
+
+    const doc = await ProjectDataModel.findByIdAndUpdate(
+      projectDataId,
+      { $set: { "clips.$[clip].archived": true } },
+      {
+        returnDocument: "after",
+        arrayFilters: [{ "clip._id": { $in: clipIds } }],
+      },
+    )
+      .lean<ProjectData>()
+      .exec();
+    if (!doc) throw new Error(`ProjectData not found: ${projectDataId}`);
+    return doc;
+  }
+
+  /**
    * Append a track to a {@link ProjectData}'s embedded `tracks` array, returning
    * the updated document so callers can reflect the full new track list.
    */

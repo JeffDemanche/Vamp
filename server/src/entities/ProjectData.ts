@@ -32,7 +32,13 @@ export class ProjectData {
   @prop({ type: () => ProjectTrack, default: [] }, PropType.ARRAY)
   tracks!: ProjectTrack[];
 
-  @Field(() => [ProjectClip])
+  /**
+   * Every clip stored on the timeline, **including archived ones**. Stored only
+   * (no `@Field`): the API exposes `clips` through a field resolver
+   * (`ProjectDataResolver`) that filters out archived clips, so consumers see
+   * only the clips currently placed on the timeline while archived takes are
+   * retained in storage.
+   */
   @prop({ type: () => ProjectClip, default: [] }, PropType.ARRAY)
   clips!: ProjectClip[];
 

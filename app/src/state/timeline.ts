@@ -94,12 +94,15 @@ export const loopEnabledAtom = atom<boolean>(DEFAULT_LOOP_ENABLED);
 export const selectedTrackIdAtom = atom<string | null>(null);
 
 /**
- * `_id` of the `ProjectClip` the user has selected on the timeline, or `null`
- * when none is selected. At most one clip is selected at a time, toggled by
- * clicking a clip. Client-only editor state (not persisted), mirroring the
- * selection behaviour of {@link selectedTrackIdAtom}.
+ * `_id`s of the `ProjectClip`s the user has selected on the timeline. Unlike
+ * the single-track selection, the timeline supports selecting **multiple**
+ * clips at once (e.g. additive clicking) so commands like "archive" can act on
+ * the whole set. Empty when nothing is selected. Client-only editor state (not
+ * persisted).
  */
-export const selectedClipIdAtom = atom<string | null>(null);
+export const selectedClipIdsAtom = atom<ReadonlySet<string>>(
+  new Set<string>(),
+);
 
 /**
  * The user's active recording, or `null` when not recording. Persisted on
@@ -202,15 +205,47 @@ export const setSelectedTrackIdAtom = atom(
 );
 
 /**
- * Select a clip by id, or pass `null` to deselect. At most one clip is selected
- * at a time.
+ * Toggle a clip in/out of the timeline selection.
+ *
+ * - `additive` (e.g. ⌘/Ctrl-click): flips just this clip's membership, leaving
+ *   the rest of the selection untouched — the gesture for building up a
+ *   multi-clip selection.
+ * - non-additive (a plain click): collapses the selection to this clip alone,
+ *   or clears it entirely when this clip was already the sole selection (so a
+ *   plain click still toggles a single clip off).
  */
-export const setSelectedClipIdAtom = atom(
+export const toggleSelectedClipAtom = atom(
   null,
-  (_get, set, clipId: string | null) => {
-    set(selectedClipIdAtom, clipId);
+  (
+    get,
+    set,
+    { clipId, additive = false }: { clipId: string; additive?: boolean },
+  ) => {
+    const current = get(selectedClipIdsAtom);
+    if (additive) {
+      const next = new Set(current);
+      if (next.has(clipId)) next.delete(clipId);
+      else next.add(clipId);
+      set(selectedClipIdsAtom, next);
+      return;
+    }
+    const isOnlySelection = current.size === 1 && current.has(clipId);
+    set(selectedClipIdsAtom, isOnlySelection ? new Set() : new Set([clipId]));
   },
 );
+
+/** Replace the clip selection with an explicit set of ids. */
+export const setSelectedClipIdsAtom = atom(
+  null,
+  (_get, set, clipIds: Iterable<string>) => {
+    set(selectedClipIdsAtom, new Set(clipIds));
+  },
+);
+
+/** Clear the clip selection. */
+export const clearSelectedClipsAtom = atom(null, (_get, set) => {
+  set(selectedClipIdsAtom, new Set<string>());
+});
 
 /** Begin recording on `trackId` at `startSample`. */
 export const startRecordingAtom = atom(
@@ -373,18 +408,37 @@ export function useSelectedTrack(): UseSelectedTrack {
   return { selectedTrackId, setSelectedTrackId };
 }
 
-export type UseSelectedClip = {
-  /** `_id` of the selected clip, or `null` when none is selected. */
-  selectedClipId: string | null;
-  /** Select a clip by id, or pass `null` to deselect. */
-  setSelectedClipId: (clipId: string | null) => void;
+export type UseSelectedClips = {
+  /** `_id`s of every currently-selected clip. Empty when none is selected. */
+  selectedClipIds: ReadonlySet<string>;
+  /** Whether a clip is part of the current selection. */
+  isClipSelected: (clipId: string) => boolean;
+  /**
+   * Toggle a clip's selection. Pass `additive` (⌘/Ctrl-click) to add/remove it
+   * without disturbing the rest of the selection; otherwise the selection
+   * collapses to just this clip (or clears if it was the sole selection).
+   */
+  toggleClip: (clipId: string, additive?: boolean) => void;
+  /** Replace the selection with an explicit set of ids. */
+  setSelectedClips: (clipIds: Iterable<string>) => void;
+  /** Clear the selection. */
+  clearSelection: () => void;
 };
 
-/** Typed access to the user's selected clip for feature/view components. */
-export function useSelectedClip(): UseSelectedClip {
-  const selectedClipId = useAtomValue(selectedClipIdAtom);
-  const setSelectedClipId = useSetAtom(setSelectedClipIdAtom);
-  return { selectedClipId, setSelectedClipId };
+/** Typed access to the user's selected clips for feature/view components. */
+export function useSelectedClips(): UseSelectedClips {
+  const selectedClipIds = useAtomValue(selectedClipIdsAtom);
+  const toggle = useSetAtom(toggleSelectedClipAtom);
+  const setSelected = useSetAtom(setSelectedClipIdsAtom);
+  const clear = useSetAtom(clearSelectedClipsAtom);
+
+  return {
+    selectedClipIds,
+    isClipSelected: (clipId) => selectedClipIds.has(clipId),
+    toggleClip: (clipId, additive = false) => toggle({ clipId, additive }),
+    setSelectedClips: setSelected,
+    clearSelection: clear,
+  };
 }
 
 export type UseRecording = {

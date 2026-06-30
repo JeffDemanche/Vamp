@@ -199,3 +199,31 @@ export const CreateClipMutation = graphql(`
     }
   }
 `);
+
+/**
+ * Archives (soft-removes) one or more clips from a project's timeline. Returns
+ * the updated `ProjectData` with the archived clips already filtered out of its
+ * `clips`, so Apollo merges the trimmed list into the cached `Project` query and
+ * the timeline lanes refresh automatically. Used by the project view's delete
+ * hotkey to remove the selected clips.
+ */
+export const ArchiveClipsMutation = graphql(`
+  mutation ArchiveClips($input: ArchiveClipsInput!) {
+    archiveClips(input: $input) {
+      _id
+      clips {
+        _id
+        start
+        duration
+        audioOffset
+        track
+        audio {
+          _id
+          filename
+          uploadStatus
+          downloadUrl
+        }
+      }
+    }
+  }
+`);

@@ -1,4 +1,5 @@
 import type { ProjectClip } from "../entities/ProjectClip";
+import type { ProjectData } from "../entities/ProjectData";
 import { refToId } from "../lib/ref";
 import type { ProjectAudioService } from "./ProjectAudioService";
 import type { ProjectDataService } from "./ProjectDataService";
@@ -18,6 +19,13 @@ export interface CreateClipInput {
   /** Offset into the underlying audio to begin at, in samples. */
   audioOffset: number;
   creatorId: string;
+}
+
+/** Identifies a set of clips to archive (soft-remove) from a project. */
+export interface ArchiveClipsInput {
+  projectId: string;
+  /** `_id`s of the embedded `ProjectClip`s to archive. */
+  clipIds: string[];
 }
 
 /**
@@ -56,5 +64,22 @@ export class ProjectClipService {
       audio: input.audioId,
       creator: input.creatorId,
     });
+  }
+
+  /**
+   * Archive (soft-remove) one or more clips from a project's timeline,
+   * returning the updated {@link ProjectData}. Archived clips are retained in
+   * storage but no longer appear on the timeline, mirroring the way
+   * `deleteTrack` returns the updated data so the client can refresh from a
+   * single normalized cache entry.
+   */
+  async archive(input: ArchiveClipsInput): Promise<ProjectData> {
+    const project = await this.projects.findById(input.projectId);
+    if (!project) throw new Error(`Project not found: ${input.projectId}`);
+
+    return this.projectData.archiveClips(
+      refToId(project.projectData),
+      input.clipIds,
+    );
   }
 }

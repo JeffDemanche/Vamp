@@ -3,6 +3,11 @@
 # !!!   DO NOT MODIFY THIS FILE BY YOURSELF   !!!
 # -----------------------------------------------
 
+input ArchiveClipsInput {
+  clipIds: [ID!]!
+  projectId: ID!
+}
+
 """Upload lifecycle of a ProjectAudio's underlying S3 object."""
 enum AudioUploadStatus {
   PENDING
@@ -56,6 +61,7 @@ input LoginInput {
 }
 
 type Mutation {
+  archiveClips(input: ArchiveClipsInput!): ProjectData!
   createAudioUpload(input: CreateAudioUploadInput!): CreateAudioUploadPayload!
   createClip(input: CreateClipInput!): ProjectClip!
   createEmptyProject(ownerId: ID!): Project!

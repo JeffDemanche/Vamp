@@ -56,6 +56,17 @@ export class ProjectClip {
   @prop({ ref: () => User, required: true })
   creator!: Ref<User>;
 
+  /**
+   * Whether this clip has been archived (soft-removed) from the timeline.
+   * Archived clips are retained on `ProjectData.clips` (so the underlying take
+   * is never lost) but filtered out of the `clips` exposed through the API, so
+   * they no longer render on the timeline. Internal flag — stored only, with no
+   * `@Field`, mirroring how `Project.archived` hides a project without deleting
+   * it.
+   */
+  @prop({ required: true, default: false })
+  archived!: boolean;
+
   @Field()
   @prop({ default: () => new Date() })
   createdAt!: Date;

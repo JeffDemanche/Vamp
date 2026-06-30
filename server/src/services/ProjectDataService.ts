@@ -22,6 +22,15 @@ export class ProjectDataService {
     return this.projectData.addClip(projectDataId, data);
   }
 
+  /**
+   * Archive (soft-remove) the clips with the given ids from a project's
+   * timeline, returning the updated data. Archived clips are retained in
+   * storage but hidden from the exposed timeline.
+   */
+  archiveClips(projectDataId: string, clipIds: string[]): Promise<ProjectData> {
+    return this.projectData.archiveClips(projectDataId, clipIds);
+  }
+
   /** Append a track to a project's timeline, returning the updated data. */
   addTrack(projectDataId: string, data: AddTrackData): Promise<ProjectData> {
     return this.projectData.addTrack(projectDataId, data);

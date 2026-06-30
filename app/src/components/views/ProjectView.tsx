@@ -1,10 +1,12 @@
 import { useQuery } from "@apollo/client/react";
 import { Loader2 } from "lucide-react";
 import { useParams } from "react-router-dom";
+import { ClipHotkeys } from "@/components/features/ClipHotkeys";
 import { ProjectTitleField } from "@/components/features/ProjectTitleField";
 import { EditorProvider } from "@/components/features/EditorProvider";
 import { TimelineEditor } from "@/components/features/TimelineEditor";
 import { TrackPane } from "@/components/features/TrackPane";
+import { HotkeyProvider } from "@/hotkeys/HotkeyProvider";
 import { ProjectQuery } from "@/projects/queries";
 import { testIds } from "@/testIds";
 
@@ -62,14 +64,17 @@ export function ProjectView() {
         </p>
       </header>
 
-      <EditorProvider projectId={project._id} initialState={data?.projectUser}>
-        <div className="mt-6 flex min-h-0 flex-1 gap-3">
-          <TrackPane projectId={project._id} />
-          <div className="min-w-0 flex-1">
-            <TimelineEditor projectId={project._id} />
+      <HotkeyProvider>
+        <EditorProvider projectId={project._id} initialState={data?.projectUser}>
+          <ClipHotkeys projectId={project._id} />
+          <div className="mt-6 flex min-h-0 flex-1 gap-3">
+            <TrackPane projectId={project._id} />
+            <div className="min-w-0 flex-1">
+              <TimelineEditor projectId={project._id} />
+            </div>
           </div>
-        </div>
-      </EditorProvider>
+        </EditorProvider>
+      </HotkeyProvider>
     </div>
   );
 }

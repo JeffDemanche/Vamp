@@ -30,10 +30,11 @@ type ClipProps = Omit<React.ComponentProps<"div">, "children" | "onSelect"> &
     selected?: boolean
     /**
      * Called when the user activates the clip to select it (click or
-     * Enter/Space). When omitted the clip is non-interactive (no selection
-     * affordances), e.g. the live recording clip.
+     * Enter/Space). Receives the originating event so callers can read modifier
+     * keys (e.g. ⌘/Ctrl for additive selection). When omitted the clip is
+     * non-interactive (no selection affordances), e.g. the live recording clip.
      */
-    onSelect?: () => void
+    onSelect?: (event: React.MouseEvent | React.KeyboardEvent) => void
     /** Body content, e.g. a future waveform rendered beneath the header. */
     children?: React.ReactNode
   }
@@ -88,7 +89,7 @@ function Clip({
           ? (event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault()
-                onSelect?.()
+                onSelect?.(event)
               }
             }
           : undefined

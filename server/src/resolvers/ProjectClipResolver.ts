@@ -13,6 +13,7 @@ import {
 import type { ServerContext } from "../context";
 import { ProjectAudio } from "../entities/ProjectAudio";
 import { ProjectClip } from "../entities/ProjectClip";
+import { ProjectData } from "../entities/ProjectData";
 import { refToId } from "../lib/ref";
 
 @InputType()
@@ -41,11 +42,22 @@ export class CreateClipInput {
   audioOffset!: number;
 }
 
+@InputType()
+export class ArchiveClipsInput {
+  @Field(() => ID)
+  projectId!: string;
+
+  /** `_id`s of the `ProjectClip`s to archive (soft-remove) from the timeline. */
+  @Field(() => [ID])
+  clipIds!: string[];
+}
+
 /**
  * API for {@link ProjectClip}. `createClip` links an uploaded
  * {@link ProjectAudio} to a position on the project's timeline (confirming the
- * upload completed in the process). The `audio` field resolver hydrates the
- * referenced audio, which is stored only as a ref on the embedded clip.
+ * upload completed in the process), and `archiveClips` soft-removes one or more
+ * clips from the timeline. The `audio` field resolver hydrates the referenced
+ * audio, which is stored only as a ref on the embedded clip.
  */
 @Resolver(() => ProjectClip)
 export class ProjectClipResolver {
@@ -67,6 +79,24 @@ export class ProjectClipResolver {
       duration: input.duration,
       audioOffset: input.audioOffset,
       creatorId,
+    });
+  }
+
+  /**
+   * Archive (soft-remove) one or more clips from a project's timeline. Returns
+   * the updated {@link ProjectData} (with its archived clips already filtered
+   * out of `clips`) so the client refreshes its timeline from a single
+   * normalized cache entry, mirroring `deleteTrack`.
+   */
+  @Mutation(() => ProjectData)
+  async archiveClips(
+    @Arg("input") input: ArchiveClipsInput,
+    @Ctx() ctx: ServerContext,
+  ): Promise<ProjectData> {
+    requireUserId(ctx);
+    return ctx.services.projectClips.archive({
+      projectId: input.projectId,
+      clipIds: input.clipIds,
     });
   }
 
