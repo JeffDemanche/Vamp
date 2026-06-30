@@ -62,9 +62,12 @@ export function useRecordingControls(): RecordingControls {
  * - **Permissions.** Probes the microphone permission on mount (no prompt) and
  *   tracks changes, so the toolbar can reflect blocked access ahead of time.
  * - **Start.** `beginRecording` acquires the mic and starts capturing *before*
- *   flipping the jotai recording state or starting playback, so no lead-in is
- *   dropped; the engine reports the timeline `startSample` the first frame maps
- *   to. Failures (denied/no mic) become a user-facing `error`.
+ *   flipping the jotai recording state, so no lead-in is dropped. Capture starts
+ *   the engine's playback in the same instant audio begins (`startPlayback`), so
+ *   the take and the playhead share one audio-clock anchor instead of the clip
+ *   drifting ahead of a separately-started transport; the engine reports the
+ *   timeline `startSample` the first frame maps to. Failures (denied/no mic)
+ *   become a user-facing `error`.
  * - **Finish.** When playback stops while recording, it stops the engine
  *   recording, clears the live recording state (hiding the red `RecordingClip`),
  *   and runs the upload → `createClip` flow with the captured audio, anchored at
@@ -122,11 +125,14 @@ export function RecordingController({
     setError(null)
     void (async () => {
       try {
-        // Audio must be flowing before any UI/transport state changes.
-        const { startSample } = await engine.startRecording()
+        // Capture starts the transport in the same instant audio begins flowing
+        // (so the take and the playhead share one anchor); only the jotai
+        // recording state is flipped after, off the resolved startSample.
+        const { startSample } = await engine.startRecording({
+          startPlayback: true,
+        })
         setPermission("granted")
         startRecording(selectedTrackId, startSample)
-        if (!engine.isPlaying) engine.play()
       } catch (err) {
         if (isMicrophonePermissionDenied(err)) setPermission("denied")
         setError(describeMicrophoneError(err))

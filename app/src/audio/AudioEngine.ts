@@ -348,10 +348,20 @@ export class AudioEngine {
    * is truly flowing (no dropped lead-in). Anchors the take to the audio clock
    * at that instant so {@link stopRecording} can report an aligned duration.
    *
+   * When `startPlayback` is set, the engine also begins playback (from
+   * `playStart`, if not already playing) in the *same* synchronous instant that
+   * capture starts, so the take and the transport share one audio-clock anchor.
+   * Starting playback separately after this resolves would lag capture by the
+   * promise/render delay, leaving the recorded clip drifting ahead of the
+   * playhead — so prefer this over a separate {@link play} call when recording.
+   *
    * Rejects if mic access is denied/unavailable (the provider throws) or a
    * recording is already in progress.
    */
-  async startRecording(): Promise<{ startSample: number }> {
+  async startRecording(
+    options: { startPlayback?: boolean } = {},
+  ): Promise<{ startSample: number }> {
+    const { startPlayback = false } = options;
     if (this.mediaRecorder) {
       throw new Error("A recording is already in progress.");
     }
@@ -379,6 +389,10 @@ export class AudioEngine {
 
     return new Promise<{ startSample: number }>((resolve, reject) => {
       recorder.onstart = () => {
+        // Start the transport in the very same instant capture begins (no-op if
+        // already playing) so playback and the recording anchor to one audio
+        // clock time — eliminating the lag a later, separate `play()` would add.
+        if (startPlayback) this.play();
         // Anchor to the audio clock the instant capture truly begins.
         this.recordStartContextTime = ctx.currentTime;
         this.recordStartSample = this.timecode;

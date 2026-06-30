@@ -363,6 +363,39 @@ describe("AudioEngine", () => {
     expect(engine.isRecording).toBe(true);
   });
 
+  it("starts playback in the same instant capture begins with startPlayback", async () => {
+    const { ctx, engine } = makeRecordingEngine();
+    engine.update(stateWith({ playStart: 5_000 }));
+
+    const { startSample } = await engine.startRecording({ startPlayback: true });
+
+    // Capture and the transport share one anchor: playing flipped on, and the
+    // recording's startSample matches the playhead's start (playStart).
+    expect(engine.isPlaying).toBe(true);
+    expect(engine.isRecording).toBe(true);
+    expect(startSample).toBe(5_000);
+    expect(engine.timecode).toBeCloseTo(5_000);
+
+    // The recorded duration tracks the playhead exactly (no lead-in drift).
+    ctx.currentTime += 2;
+    expect(engine.timecode).toBeCloseTo(5_000 + 2 * SAMPLE_RATE);
+    const result = await engine.stopRecording();
+    expect(result.durationSamples).toBeCloseTo(2 * SAMPLE_RATE);
+  });
+
+  it("does not restart playback for startPlayback when already playing", async () => {
+    const { ctx, engine } = makeRecordingEngine();
+    engine.update(stateWith({ playStart: 0 }));
+    engine.play();
+    ctx.currentTime += 1; // one second elapsed → SAMPLE_RATE samples
+
+    const { startSample } = await engine.startRecording({ startPlayback: true });
+
+    // Already playing: the live playhead anchors the take rather than resetting.
+    expect(startSample).toBeCloseTo(SAMPLE_RATE);
+    expect(engine.isPlaying).toBe(true);
+  });
+
   it("captures the live playhead as startSample when recording while playing", async () => {
     const { ctx, engine } = makeRecordingEngine();
     engine.update(stateWith({ playStart: 0 }));
