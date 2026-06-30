@@ -188,6 +188,49 @@ export const setPlayEndAtom = atom(null, (get, set, sample: number) => {
   set(playEndAtom, Math.max(Math.round(sample), get(playStartAtom)));
 });
 
+/** Which boundary of the playback range a drag is currently controlling. */
+export type PlayBoundarySide = "start" | "end";
+
+/**
+ * Drag one boundary of the playback range to a sample, **swapping roles** when
+ * it crosses the other boundary. If the start handle is dragged past `playEnd`,
+ * the old end becomes the new start and the dragged handle takes over as the end
+ * (and vice-versa). Returns the side the dragged handle now controls so a
+ * continuous drag can keep driving the correct boundary after a swap.
+ *
+ * Unlike `setPlayStart`/`setPlayEnd` (which push the opposite edge along), this
+ * keeps both handles anchored where the user left them and only reinterprets
+ * which is "start" vs "end" — the gesture the timeline scrubber handles use.
+ */
+export const dragPlayBoundaryAtom = atom(
+  null,
+  (
+    get,
+    set,
+    { side, sample }: { side: PlayBoundarySide; sample: number },
+  ): PlayBoundarySide => {
+    const rounded = Math.round(sample);
+    const start = get(playStartAtom);
+    const end = get(playEndAtom);
+    if (side === "start") {
+      if (rounded > end) {
+        set(playStartAtom, end);
+        set(playEndAtom, rounded);
+        return "end";
+      }
+      set(playStartAtom, rounded);
+      return "start";
+    }
+    if (rounded < start) {
+      set(playEndAtom, start);
+      set(playStartAtom, rounded);
+      return "start";
+    }
+    set(playEndAtom, rounded);
+    return "end";
+  },
+);
+
 /** Flip looping on/off. */
 export const toggleLoopAtom = atom(null, (get, set) => {
   set(loopEnabledAtom, !get(loopEnabledAtom));
@@ -374,6 +417,12 @@ export type UseTimelinePlayback = {
   setPlayStart: (sample: number) => void;
   /** Set the playback end (loop) boundary. */
   setPlayEnd: (sample: number) => void;
+  /**
+   * Drag one boundary of the play range, swapping start/end when it crosses the
+   * other. Returns the side now under the dragged handle (see
+   * `dragPlayBoundaryAtom`).
+   */
+  dragPlayBoundary: (side: PlayBoundarySide, sample: number) => PlayBoundarySide;
   /** Toggle looping on/off. */
   toggleLoop: () => void;
 };
@@ -389,9 +438,18 @@ export function useTimelinePlayback(): UseTimelinePlayback {
   const loop = useAtomValue(loopEnabledAtom);
   const setPlayStart = useSetAtom(setPlayStartAtom);
   const setPlayEnd = useSetAtom(setPlayEndAtom);
+  const dragBoundary = useSetAtom(dragPlayBoundaryAtom);
   const toggleLoop = useSetAtom(toggleLoopAtom);
 
-  return { playStart, playEnd, loop, setPlayStart, setPlayEnd, toggleLoop };
+  return {
+    playStart,
+    playEnd,
+    loop,
+    setPlayStart,
+    setPlayEnd,
+    dragPlayBoundary: (side, sample) => dragBoundary({ side, sample }),
+    toggleLoop,
+  };
 }
 
 export type UseSelectedTrack = {

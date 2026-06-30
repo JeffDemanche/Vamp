@@ -4,6 +4,7 @@ import {
   useAudioEngineTimecode,
 } from "@/audio/AudioEngineProvider"
 import { Timeline } from "@/components/composites/timeline"
+import { PlaybackScrubbers } from "@/components/features/PlaybackScrubbers"
 import { RecordingController } from "@/components/features/RecordingController"
 import { TimelineToolbar } from "@/components/features/TimelineToolbar"
 import { TrackLanes } from "@/components/features/TrackLanes"
@@ -33,6 +34,7 @@ function TimelineEditorInner({ projectId }: { projectId: string }) {
       playbackPosition={playing ? timecode : null}
       onPan={pan}
       onZoom={zoom}
+      headerOverlay={<PlaybackScrubbers />}
     >
       <TrackLanes projectId={projectId} />
     </Timeline>

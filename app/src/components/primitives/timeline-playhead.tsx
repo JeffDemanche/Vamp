@@ -24,8 +24,12 @@ type TimelinePlayheadProps = {
   className?: string
 }
 
-/** Triangle height (px) — also bounds its width — for the scrubber markers. */
-const TRIANGLE_SIZE = 12
+/**
+ * Size (px) of the small caret flag at the top of each scrubber. Smaller than a
+ * full triangle so the marker reads as a subtle slider handle; also bounds the
+ * caret's width (it leans `CARET_SIZE` px to one side).
+ */
+const CARET_SIZE = 7
 
 /** Track the rendered (CSS-pixel) size of an element via a `ResizeObserver`. */
 function useElementSize() {
@@ -55,11 +59,12 @@ function readCssVar(el: Element, name: string, fallback: string): string {
 }
 
 /**
- * Canvas overlay that draws the timeline's playback-range scrubbers: a
- * forward-facing (right-pointing) triangle at `playStart` and, when set, a
- * backward-facing (left-pointing) triangle at `playEnd`. Each triangle sits in
- * the header band and drops a thin full-height guide line at its sample
- * position. When `playEnd` is null, only the start scrubber is drawn.
+ * Canvas overlay that draws the timeline's playback-range scrubbers: a small
+ * caret leaning right at `playStart` and, when set, a caret leaning left at
+ * `playEnd`. Each caret sits at the very top of the header band and is joined to
+ * a thin guide line that runs the full height of the timeline (header included),
+ * so the marker and its line read as one continuous scrubber. When `playEnd` is
+ * null, only the start scrubber is drawn.
  *
  * While the audio engine is playing, `playbackPosition` adds a third marker: a
  * solid, full-height playhead line tracking the live playback position, drawn
@@ -104,31 +109,33 @@ function TimelinePlayhead({
     const endColor = readCssVar(canvas, "--secondary-foreground", "currentColor")
 
     /**
-     * Draw one scrubber: a full-height guide line plus a triangle in the header
-     * band. `direction` is +1 for a forward (right-pointing) triangle and -1 for
-     * a backward (left-pointing) one; the triangle's flat edge sits on `x`.
+     * Draw one scrubber: a guide line spanning the *whole* timeline (header band
+     * included) so it joins seamlessly to the caret at the top with no gap, plus
+     * a small right-angle caret hugging the line. `direction` is +1 for the start
+     * scrubber (caret leans right, toward the play region) and -1 for the end
+     * scrubber (caret leans left), so the two stay distinguishable.
      */
     const drawScrubber = (sample: number, color: string, direction: 1 | -1) => {
       const x = xForSample(sample)
       // Skip markers that fall outside the visible window (with a little slack).
-      if (x < -TRIANGLE_SIZE || x > width + TRIANGLE_SIZE) return
+      if (x < -CARET_SIZE || x > width + CARET_SIZE) return
 
       const lineX = Math.round(x) + 0.5
       ctx.strokeStyle = color
       ctx.lineWidth = 1
       ctx.globalAlpha = 0.5
       ctx.beginPath()
-      ctx.moveTo(lineX, headerHeight)
+      ctx.moveTo(lineX, 0)
       ctx.lineTo(lineX, height)
       ctx.stroke()
 
-      const triH = Math.min(TRIANGLE_SIZE, headerHeight)
+      const caret = Math.min(CARET_SIZE, headerHeight)
       ctx.globalAlpha = 1
       ctx.fillStyle = color
       ctx.beginPath()
-      ctx.moveTo(x, 0)
-      ctx.lineTo(x, triH)
-      ctx.lineTo(x + direction * TRIANGLE_SIZE, triH / 2)
+      ctx.moveTo(lineX, 0)
+      ctx.lineTo(lineX + direction * caret, 0)
+      ctx.lineTo(lineX, caret)
       ctx.closePath()
       ctx.fill()
     }

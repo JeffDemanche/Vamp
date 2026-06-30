@@ -24,9 +24,59 @@ type TimelineProps = {
   onPan?: (deltaSamples: number) => void
   /** Zoom around a focus sample; `factor` < 1 zooms in, > 1 zooms out. */
   onZoom?: (factor: number, focusSample: number) => void
+  /**
+   * Interactive content layered over the header band (top `TIMELINE_HEADER_HEIGHT`
+   * pixels) — e.g. the playback scrubber drag handles. The band itself ignores
+   * pointer events (so empty space still pans the timeline); individual elements
+   * opt back in with `pointer-events-auto`. Rendered inside the timeline's
+   * coordinate context, so it can read `useTimelineCoords`.
+   */
+  headerOverlay?: React.ReactNode
   /** Track lanes / regions rendered on top of the ruler. */
   children?: React.ReactNode
   className?: string
+}
+
+/**
+ * The sample ↔ pixel coordinate system the `Timeline` exposes to its subtree,
+ * derived from the measured surface width and the visible sample window. Mirrors
+ * the per-lane `SwimlaneCoords`, but spans the whole timeline so header-band
+ * overlays (scrubber handles, future markers) can position themselves and map
+ * pointer positions to samples. `clientXToSample` reads the live container rect,
+ * so it stays correct as the surface moves/resizes.
+ */
+export type TimelineCoords = {
+  /** Sample coordinate at the surface's left edge. May be negative. */
+  viewportStart: number
+  /** Sample coordinate at the surface's right edge. May be negative. */
+  viewportEnd: number
+  /** Measured surface width in CSS pixels (0 before first measurement). */
+  width: number
+  /** Samples represented by a single pixel (0 before first measurement). */
+  samplesPerPixel: number
+  /** Convert a sample position to an x offset (px) from the surface's left edge. */
+  sampleToX: (sample: number) => number
+  /** Convert a sample duration to a width (px). */
+  samplesToWidth: (samples: number) => number
+  /** Convert an x offset (px) from the surface's left edge to a sample position. */
+  xToSample: (x: number) => number
+  /** Convert an absolute pointer `clientX` (px) to a sample position. */
+  clientXToSample: (clientX: number) => number
+}
+
+const TimelineCoordsContext = React.createContext<TimelineCoords | null>(null)
+
+/**
+ * Access the enclosing `Timeline`'s coordinate system. Used by header-band
+ * overlays and drag handles to position by sample and map pointer → sample.
+ * Throws if used outside a `Timeline`.
+ */
+export function useTimelineCoords(): TimelineCoords {
+  const coords = React.useContext(TimelineCoordsContext)
+  if (!coords) {
+    throw new Error("useTimelineCoords must be used within a <Timeline>")
+  }
+  return coords
 }
 
 /** Multiplier applied per unit of wheel delta when zooming. */
@@ -58,6 +108,10 @@ export const TIMELINE_TOOLBAR_HEIGHT = 44
  * Pure presentational composite: the visible range arrives via props and
  * gestures are emitted as callbacks. The only internal state is its measured
  * width (needed to map pixels → samples) and the ephemeral drag bookkeeping.
+ *
+ * Exposes its sample ↔ pixel mapping to its subtree via `useTimelineCoords`, and
+ * accepts a `headerOverlay` for interactive header-band content (e.g. playback
+ * scrubber handles) that needs those coordinates.
  */
 function Timeline({
   viewportStart,
@@ -68,6 +122,7 @@ function Timeline({
   playbackPosition,
   onPan,
   onZoom,
+  headerOverlay,
   children,
   className,
 }: TimelineProps) {
@@ -90,6 +145,24 @@ function Timeline({
 
   const span = viewportEnd - viewportStart
   const samplesPerPixel = width > 0 ? span / width : 0
+
+  const coords = React.useMemo<TimelineCoords>(() => {
+    const perPixel = width > 0 && span > 0 ? span / width : 0
+    return {
+      viewportStart,
+      viewportEnd,
+      width,
+      samplesPerPixel: perPixel,
+      sampleToX: (sample) =>
+        perPixel > 0 ? (sample - viewportStart) / perPixel : 0,
+      samplesToWidth: (samples) => (perPixel > 0 ? samples / perPixel : 0),
+      xToSample: (x) => viewportStart + x * perPixel,
+      clientXToSample: (clientX) => {
+        const left = containerRef.current?.getBoundingClientRect().left ?? 0
+        return viewportStart + (clientX - left) * perPixel
+      },
+    }
+  }, [viewportStart, viewportEnd, width, span])
 
   // Native, non-passive wheel listener so we can preventDefault the page scroll.
   React.useEffect(() => {
@@ -171,12 +244,23 @@ function Timeline({
           playbackPosition={playbackPosition}
         />
       </div>
-      <div
-        className="absolute inset-x-0 bottom-0"
-        style={{ top: TIMELINE_HEADER_HEIGHT }}
-      >
-        {children}
-      </div>
+      <TimelineCoordsContext.Provider value={coords}>
+        {/* Header band: interactive overlays (scrubber handles) sit here. The
+            band ignores pointer events so empty space still pans; handles
+            re-enable them with `pointer-events-auto`. */}
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0"
+          style={{ height: TIMELINE_HEADER_HEIGHT }}
+        >
+          {headerOverlay}
+        </div>
+        <div
+          className="absolute inset-x-0 bottom-0"
+          style={{ top: TIMELINE_HEADER_HEIGHT }}
+        >
+          {children}
+        </div>
+      </TimelineCoordsContext.Provider>
     </div>
   )
 }
