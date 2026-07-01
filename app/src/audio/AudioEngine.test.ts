@@ -142,7 +142,7 @@ class FakeMediaRecorder {
   }
 }
 
-function makeRecordingEngine() {
+function makeRecordingEngine(options: { onMediaStreamRequest?: () => void } = {}) {
   const ctx = new FakeAudioContext();
   const tracks = [{ stop: jest.fn() }];
   const stream = { getTracks: () => tracks } as unknown as MediaStream;
@@ -152,7 +152,10 @@ function makeRecordingEngine() {
   }> = [];
   const engine = new AudioEngine({
     contextFactory: () => ctx as unknown as AudioContext,
-    mediaStreamProvider: () => Promise.resolve(stream),
+    mediaStreamProvider: () => {
+      options.onMediaStreamRequest?.();
+      return Promise.resolve(stream);
+    },
     mediaRecorderFactory: (s, options) => {
       const recorder = new FakeMediaRecorder(s, options);
       recorders.push(recorder);
@@ -663,7 +666,58 @@ describe("AudioEngine", () => {
     expect(engine.isRecording).toBe(false);
   });
 
-  it("releases the context on dispose", () => {
+  it("reuses a prepared microphone stream on startRecording", async () => {
+    let providerCalls = 0;
+    const { ctx, engine } = makeRecordingEngine({
+      onMediaStreamRequest: () => {
+        providerCalls += 1;
+      },
+    });
+    engine.update(stateWith());
+
+    await engine.prepareRecording();
+    await engine.startRecording();
+
+    expect(providerCalls).toBe(1);
+    expect(engine.isRecording).toBe(true);
+    ctx.currentTime += 1;
+    await engine.stopRecording();
+  });
+
+  it("discards a prepared stream when the input device changes", async () => {
+    let providerCalls = 0;
+    const { engine } = makeRecordingEngine({
+      onMediaStreamRequest: () => {
+        providerCalls += 1;
+      },
+    });
+    engine.update(stateWith());
+
+    await engine.prepareRecording();
+    engine.setInputDeviceId("other-mic");
+    await engine.prepareRecording();
+
+    expect(providerCalls).toBe(2);
+  });
+
+  it("does not prepare a stream while a recording is active", async () => {
+    let providerCalls = 0;
+    const { ctx, engine } = makeRecordingEngine({
+      onMediaStreamRequest: () => {
+        providerCalls += 1;
+      },
+    });
+    engine.update(stateWith());
+
+    await engine.startRecording();
+    await engine.prepareRecording();
+
+    expect(providerCalls).toBe(1);
+    ctx.currentTime += 1;
+    await engine.stopRecording();
+  });
+
+  it("releases the context on dispose", async () => {
     const { ctx, engine } = makeEngine();
     engine.setAudioBuffer("a1", fakeBuffer);
     engine.update(stateWith());

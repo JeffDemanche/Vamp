@@ -3,6 +3,7 @@ import * as React from "react"
 
 import {
   useAudioEngine,
+  useAudioDevices,
   useAudioEnginePlaying,
 } from "@/audio/AudioEngineProvider"
 import {
@@ -91,13 +92,17 @@ export function clipPlacementFromRecording(result: {
  *
  * - **Permissions.** Probes the microphone permission on mount (no prompt) and
  *   tracks changes, so the toolbar can reflect blocked access ahead of time.
- * - **Start.** `beginRecording` acquires the mic and starts capturing *before*
- *   flipping the jotai recording state, so no lead-in is dropped. Capture starts
- *   the engine's playback in the same instant audio begins (`startPlayback`), so
- *   the take and the playhead share one audio-clock anchor instead of the clip
- *   drifting ahead of a separately-started transport; the engine reports the
- *   timeline `startSample` the first frame maps to. Failures (denied/no mic)
- *   become a user-facing `error`.
+ *   When access is already granted and a track is selected, the engine
+ *   pre-acquires the mic (`prepareRecording`) so Record can start capture
+ *   without waiting on `getUserMedia`.
+ * - **Start.** `beginRecording` flips the jotai recording state immediately so
+ *   the live `RecordingClip` and record button react on click, using the current
+ *   playhead as a provisional `startSample`. It then acquires the mic and starts
+ *   capture; capture starts the engine's playback in the same instant audio
+ *   begins (`startPlayback`), so the take and the playhead share one audio-clock
+ *   anchor. When capture resolves, the provisional anchor is reconciled if the
+ *   playhead moved during mic acquisition (e.g. recording while already playing).
+ *   Failures (denied/no mic) roll back the optimistic state and become `error`.
  * - **Finish.** When playback stops while recording, it stops the engine
  *   recording, clears the live recording state (hiding the red `RecordingClip`),
  *   and runs the upload → `createClip` flow with the captured audio, anchored at
@@ -113,10 +118,11 @@ export function RecordingController({
   children?: React.ReactNode
 }) {
   const engine = useAudioEngine()
+  const { inputDeviceId } = useAudioDevices()
   const playing = useAudioEnginePlaying()
   const client = useApolloClient()
   const { selectedTrackId } = useSelectedTrack()
-  const { playStart } = useTimelinePlayback()
+  const { playStart, playEnd, loop } = useTimelinePlayback()
   const { recording, isRecording, startRecording, stopRecording } = useRecording()
 
   const [permission, setPermission] =
@@ -128,9 +134,7 @@ export function RecordingController({
   const recordingRef = React.useRef(recording)
   recordingRef.current = recording
 
-  // Guards against re-entry while a start is mid-flight: `isRecording` only
-  // flips once capture has begun, so a fast double-click could otherwise arm
-  // two recordings.
+  // Guards against re-entry while mic acquisition is mid-flight.
   const armingRef = React.useRef(false)
 
   // Probe and then watch the microphone permission (passive — never prompts).
@@ -150,28 +154,59 @@ export function RecordingController({
     }
   }, [])
 
+  // Keep a warm mic stream ready while recording is armed (permission granted,
+  // track selected, no take in progress) so capture can start immediately.
+  React.useEffect(() => {
+    if (permission !== "granted" || !selectedTrackId || isRecording) return
+    void engine.prepareRecording()
+  }, [engine, inputDeviceId, isRecording, permission, selectedTrackId])
+
   const beginRecording = React.useCallback(() => {
     if (isRecording || armingRef.current || !selectedTrackId) return
     armingRef.current = true
     setError(null)
+
+    const provisionalStart = Math.round(engine.timecode)
+    const provisionalLoopLength =
+      loop && playEnd > playStart ? playEnd - playStart : undefined
+    // Show the live clip immediately; reconcile the anchor once capture begins.
+    startRecording(
+      selectedTrackId,
+      provisionalStart,
+      provisionalLoopLength,
+      playStart,
+    )
+
     void (async () => {
       try {
-        // Capture starts the transport in the same instant audio begins flowing
-        // (so the take and the playhead share one anchor); only the jotai
-        // recording state is flipped after, off the resolved startSample.
         const { startSample, loopLength } = await engine.startRecording({
           startPlayback: true,
         })
         setPermission("granted")
-        startRecording(selectedTrackId, startSample, loopLength, playStart)
+        if (
+          startSample !== provisionalStart ||
+          loopLength !== provisionalLoopLength
+        ) {
+          startRecording(selectedTrackId, startSample, loopLength, playStart)
+        }
       } catch (err) {
+        stopRecording()
         if (isMicrophonePermissionDenied(err)) setPermission("denied")
         setError(describeMicrophoneError(err))
       } finally {
         armingRef.current = false
       }
     })()
-  }, [engine, isRecording, selectedTrackId, startRecording, playStart])
+  }, [
+    engine,
+    isRecording,
+    loop,
+    playEnd,
+    playStart,
+    selectedTrackId,
+    startRecording,
+    stopRecording,
+  ])
 
   // Finalize the take whenever playback stops mid-recording: stop capture,
   // clear the live state, and persist the clip.

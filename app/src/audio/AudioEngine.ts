@@ -304,6 +304,12 @@ export class AudioEngine {
   private mediaRecorder: MediaRecorder | null = null;
   /** Microphone stream backing the active recorder; tracks are stopped on cleanup. */
   private recordingStream: MediaStream | null = null;
+  /** Pre-acquired mic stream for the selected input, ready for the next take. */
+  private preparedStream: MediaStream | null = null;
+  /** `inputDeviceId` the prepared stream was opened for (`undefined` = none). */
+  private preparedStreamDeviceId: string | null | undefined = undefined;
+  /** In-flight {@link prepareRecording} call, deduped for concurrent warmers. */
+  private prepareRecordingPromise: Promise<void> | null = null;
   /** Captured data chunks, assembled into the result blob on stop. */
   private recordedChunks: Blob[] = [];
   /** Audio-clock time (seconds) when capture began — the anchor for duration. */
@@ -351,6 +357,9 @@ export class AudioEngine {
 
   /** Select which microphone to capture from on the next recording. */
   setInputDeviceId(deviceId: string | null): void {
+    if (deviceId !== this.inputDeviceId) {
+      this.releasePreparedStream();
+    }
     this.inputDeviceId = deviceId;
   }
 
@@ -467,6 +476,43 @@ export class AudioEngine {
   // --- Recording ----------------------------------------------------------
 
   /**
+   * Pre-acquire the microphone for the currently selected input device so the
+   * next {@link startRecording} can begin capture without waiting on
+   * `getUserMedia`. No-op while a take is active or a stream is already
+   * prepared for the current device. Failures are swallowed — the next record
+   * attempt will try again (and can surface an error to the user).
+   */
+  async prepareRecording(): Promise<void> {
+    if (this.mediaRecorder) return;
+    const deviceId = this.inputDeviceId;
+    if (this.preparedStream && this.preparedStreamDeviceId === deviceId) return;
+
+    if (this.prepareRecordingPromise) {
+      await this.prepareRecordingPromise;
+      return;
+    }
+
+    this.prepareRecordingPromise = (async () => {
+      this.releasePreparedStream();
+      try {
+        const stream = await this.mediaStreamProvider();
+        if (deviceId !== this.inputDeviceId) {
+          for (const track of stream.getTracks()) track.stop();
+          return;
+        }
+        this.preparedStream = stream;
+        this.preparedStreamDeviceId = deviceId;
+      } catch {
+        this.releasePreparedStream();
+      } finally {
+        this.prepareRecordingPromise = null;
+      }
+    })();
+
+    await this.prepareRecordingPromise;
+  }
+
+  /**
    * Acquire the microphone and begin capturing a take. Resolves only once the
    * recorder has actually started, with the timeline `startSample` the first
    * captured frame maps to — so callers can flip UI/record state *after* audio
@@ -491,7 +537,11 @@ export class AudioEngine {
       throw new Error("A recording is already in progress.");
     }
     const ctx = this.ensureContext();
-    const stream = await this.mediaStreamProvider();
+    let stream = this.takePreparedStream();
+    if (!stream) {
+      this.releasePreparedStream();
+      stream = await this.mediaStreamProvider();
+    }
     this.recordingStream = stream;
 
     const mimeType = pickRecordingMimeType();
@@ -719,6 +769,25 @@ export class AudioEngine {
     this.recordCrossedLoop = false;
   }
 
+  private takePreparedStream(): MediaStream | null {
+    const deviceId = this.inputDeviceId;
+    if (!this.preparedStream || this.preparedStreamDeviceId !== deviceId) {
+      return null;
+    }
+    const stream = this.preparedStream;
+    this.preparedStream = null;
+    this.preparedStreamDeviceId = undefined;
+    return stream;
+  }
+
+  private releasePreparedStream(): void {
+    if (this.preparedStream) {
+      for (const track of this.preparedStream.getTracks()) track.stop();
+      this.preparedStream = null;
+    }
+    this.preparedStreamDeviceId = undefined;
+  }
+
   /** Mono PCM captured so far, resampled to the timeline sample rate. */
   private recordingPcmAtTimelineRate(): Float32Array | undefined {
     const ctx = this.context;
@@ -784,6 +853,7 @@ export class AudioEngine {
   dispose(): void {
     this.teardownPlayback();
     this.cleanupRecording();
+    this.releasePreparedStream();
     this.playing = false;
     this.audioBuffers.clear();
     this.notifyAudioStore();
