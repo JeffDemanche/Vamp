@@ -151,12 +151,16 @@ export function TimelineClip({
   // True between a real drag ending and its trailing native `click`, so that
   // click is swallowed instead of toggling the selection of a clip we moved.
   const suppressClick = React.useRef(false)
+  // Bumped on each drag start so a stale `updateClip` finally handler from an
+  // earlier gesture cannot clear preview state for a newer drag.
+  const commitGenerationRef = React.useRef(0)
 
   const { dragHandlers } = useTimelineDrag({
     clientXToSample: coords.clientXToSample,
     // Keep the clip's native click so a press without movement still selects it.
     preventDefault: false,
     onDragStart: ({ sample }, event) => {
+      commitGenerationRef.current += 1
       gesture.current = {
         downClientX: event.clientX,
         downClientY: event.clientY,
@@ -185,14 +189,37 @@ export function TimelineClip({
       g.nextTrack = nextTrack
       setClipDrag({ clipId: clip._id, start: nextStart, trackId: nextTrack })
     },
-    onDragEnd: () => {
+    onDragEnd: ({ sample }, event) => {
       const g = gesture.current
       gesture.current = null
       const clearPreview = () => {
         setDragging(false)
         setClipDrag(null)
       }
-      if (!g || !g.moved) {
+      if (!g) {
+        clearPreview()
+        return
+      }
+
+      // Fast flicks may release before any pointer-move crosses the threshold,
+      // or the last move may not reflect the release point — finalize here.
+      if (!g.moved) {
+        const dx = event.clientX - g.downClientX
+        const dy = event.clientY - g.downClientY
+        if (Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
+          g.moved = true
+        }
+      }
+      if (g.moved) {
+        setDragging(true)
+        const nextStart = Math.round(g.originStart + (sample - g.downSample))
+        const nextTrack = trackIdAtClientY(event.clientY) ?? g.originTrack
+        g.nextStart = nextStart
+        g.nextTrack = nextTrack
+        setClipDrag({ clipId: clip._id, start: nextStart, trackId: nextTrack })
+      }
+
+      if (!g.moved) {
         clearPreview()
         return
       }
@@ -204,6 +231,7 @@ export function TimelineClip({
         clearPreview()
         return
       }
+      const commitGeneration = commitGenerationRef.current
       // Hold the preview (overlay + dimmed source) until the server confirms so
       // the clip doesn't flash back to its old spot during the round-trip.
       void updateClip({
@@ -215,7 +243,10 @@ export function TimelineClip({
             track: g.nextTrack,
           },
         },
-      }).finally(clearPreview)
+      }).finally(() => {
+        if (commitGenerationRef.current !== commitGeneration) return
+        clearPreview()
+      })
     },
   })
 
@@ -240,6 +271,7 @@ export function TimelineClip({
         onPointerMove={dragHandlers.onPointerMove}
         onPointerUp={dragHandlers.onPointerUp}
         onPointerCancel={dragHandlers.onPointerCancel}
+        onLostPointerCapture={dragHandlers.onLostPointerCapture}
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
       >
