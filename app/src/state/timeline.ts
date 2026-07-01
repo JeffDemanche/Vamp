@@ -143,6 +143,16 @@ export type RecordingState = {
   startSample: number;
   /** Wall-clock instant the recording began (ISO-8601 string). */
   startedAt: string;
+  /**
+   * Loop length (samples) when the transport was looping at capture start.
+   * Omitted for non-looped takes.
+   */
+  loopLength?: number;
+  /**
+   * Playback-range start (samples) when recording began — loop anchor for
+   * wrapped takes. Omitted for non-looped takes.
+   */
+  playStart?: number;
 };
 
 export const recordingAtom = atom<RecordingState | null>(null);
@@ -321,11 +331,27 @@ export const clearSelectedClipsAtom = atom(null, (_get, set) => {
 /** Begin recording on `trackId` at `startSample`. */
 export const startRecordingAtom = atom(
   null,
-  (_get, set, { trackId, startSample }: { trackId: string; startSample: number }) => {
+  (
+    _get,
+    set,
+    {
+      trackId,
+      startSample,
+      loopLength,
+      playStart,
+    }: {
+      trackId: string;
+      startSample: number;
+      loopLength?: number;
+      playStart?: number;
+    },
+  ) => {
     set(recordingAtom, {
       trackId,
       startSample: Math.round(startSample),
       startedAt: new Date().toISOString(),
+      ...(loopLength !== undefined ? { loopLength } : {}),
+      ...(playStart !== undefined ? { playStart } : {}),
     });
   },
 );
@@ -552,7 +578,12 @@ export type UseRecording = {
   /** Whether a recording is currently in progress. */
   isRecording: boolean;
   /** Begin recording on `trackId` at `startSample`. */
-  startRecording: (trackId: string, startSample: number) => void;
+  startRecording: (
+    trackId: string,
+    startSample: number,
+    loopLength?: number,
+    playStart?: number,
+  ) => void;
   /** End the active recording. */
   stopRecording: () => void;
 };
@@ -566,7 +597,8 @@ export function useRecording(): UseRecording {
   return {
     recording,
     isRecording: recording !== null,
-    startRecording: (trackId, startSample) => start({ trackId, startSample }),
+    startRecording: (trackId, startSample, loopLength, playStart) =>
+      start({ trackId, startSample, loopLength, playStart }),
     stopRecording: stop,
   };
 }

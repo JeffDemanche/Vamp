@@ -28,6 +28,19 @@ export const CreateEmptyProjectMutation = graphql(`
 `);
 
 /**
+ * Archives or unarchives a project. Used by the home view's `ProjectsTable` to
+ * archive a project, which hides it from the active project list.
+ */
+export const SetProjectArchivedMutation = graphql(`
+  mutation SetProjectArchived($id: ID!, $archived: Boolean!) {
+    setProjectArchived(id: $id, archived: $archived) {
+      _id
+      archived
+    }
+  }
+`);
+
+/**
  * A single project with the metadata the `ProjectView` header needs (title and
  * owner) plus the project's tracks for the editor's track pane. Also fetches the
  * signed-in user's `ProjectUser` (their saved editor view state) so the timeline
@@ -56,13 +69,22 @@ export const ProjectQuery = graphql(`
           _id
           start
           duration
+          maxDuration
+          mode
           audioOffset
           track
+          audioInClips {
+            _id
+            start
+            duration
+            audioOffset
+          }
           audio {
             _id
             filename
             uploadStatus
             downloadUrl
+            loopLength
           }
         }
         audios {
@@ -70,6 +92,7 @@ export const ProjectQuery = graphql(`
           filename
           uploadStatus
           downloadUrl
+          loopLength
         }
       }
     }
@@ -172,6 +195,7 @@ export const CreateAudioUploadMutation = graphql(`
         key
         contentType
         uploadStatus
+        loopLength
       }
     }
   }
@@ -188,13 +212,22 @@ export const CreateClipMutation = graphql(`
       _id
       start
       duration
+      maxDuration
+      mode
       audioOffset
       track
+      audioInClips {
+        _id
+        start
+        duration
+        audioOffset
+      }
       audio {
         _id
         filename
         uploadStatus
         downloadUrl
+        loopLength
       }
     }
   }
@@ -213,13 +246,22 @@ export const UpdateClipMutation = graphql(`
       _id
       start
       duration
+      maxDuration
+      mode
       audioOffset
       track
+      audioInClips {
+        _id
+        start
+        duration
+        audioOffset
+      }
       audio {
         _id
         filename
         uploadStatus
         downloadUrl
+        loopLength
       }
     }
   }
@@ -240,13 +282,22 @@ export const ArchiveClipsMutation = graphql(`
         _id
         start
         duration
+        maxDuration
+        mode
         audioOffset
         track
+        audioInClips {
+          _id
+          start
+          duration
+          audioOffset
+        }
         audio {
           _id
           filename
           uploadStatus
           downloadUrl
+          loopLength
         }
       }
     }

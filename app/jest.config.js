@@ -7,6 +7,7 @@ module.exports = {
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
+    "^@vamp/shared$": "<rootDir>/../shared/src/index.ts",
   },
   transform: {
     "^.+\\.(ts|tsx)$": [

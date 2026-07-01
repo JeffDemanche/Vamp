@@ -11,6 +11,7 @@ WORKDIR /app
 # Install dependencies first for better layer caching. Only the manifests are
 # copied so this layer is only rebuilt when dependencies actually change.
 COPY package.json package-lock.json ./
+COPY shared/package.json ./shared/package.json
 COPY server/package.json ./server/package.json
 COPY app/package.json ./app/package.json
 RUN npm ci
@@ -18,6 +19,9 @@ RUN npm ci
 # Copy the rest of the source. At runtime `docker compose watch` keeps these in
 # sync with the host, so this is mostly the initial seed of the working tree.
 COPY . .
+
+# `@vamp/shared` is compiled JS (`dist/`); build it before services start.
+RUN npm run build -w @vamp/shared
 
 # server -> 4000, vite dev server -> 5173
 EXPOSE 4000 5173

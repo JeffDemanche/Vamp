@@ -68,6 +68,24 @@ export class ProjectAudio {
   @prop({ trim: true })
   filename?: string;
 
+  /**
+   * The loop length (in samples) active when this audio was recorded over a
+   * looping transport. `null` for non-looped takes and file imports. Used by
+   * **stacked** clips to re-trigger the audio at every loop point.
+   */
+  @Field(() => Int, { nullable: true })
+  @prop()
+  loopLength?: number;
+
+  /**
+   * Duration of the decoded audio in timeline samples. Set when a clip is
+   * created so stacked {@link AudioInClip} backfill can derive the pass count
+   * for legacy clips.
+   */
+  @Field(() => Int, { nullable: true })
+  @prop()
+  durationSamples?: number;
+
   /** Whether the upload has been confirmed present in S3. */
   @Field(() => AudioUploadStatus)
   @prop({ required: true, enum: AudioUploadStatus, default: AudioUploadStatus.PENDING })

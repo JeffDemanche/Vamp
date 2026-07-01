@@ -36,6 +36,12 @@ type ClipProps = Omit<React.ComponentProps<"div">, "children" | "onSelect"> &
      */
     onSelect?: (event: React.MouseEvent | React.KeyboardEvent) => void
     /**
+     * A small adornment shown at the trailing edge of the header bar, next to
+     * the label (e.g. a mode icon/count). Domain-agnostic: callers decide what
+     * it contains. Pushed to the right so it stays clear of the label.
+     */
+    badge?: React.ReactNode
+    /**
      * Background content filling the clip, drawn behind the header label (e.g.
      * a waveform). Stretched to the clip's bounds and pointer-inert so it never
      * intercepts the clip's selection/drag gestures.
@@ -61,6 +67,7 @@ function Clip({
   label,
   selected = false,
   onSelect,
+  badge,
   className,
   children,
   onPointerDown,
@@ -126,6 +133,14 @@ function Clip({
         {label && (
           <span className="truncate text-xs leading-none font-medium">
             {label}
+          </span>
+        )}
+        {badge && (
+          <span
+            data-slot="clip-badge"
+            className="ml-auto flex shrink-0 items-center"
+          >
+            {badge}
           </span>
         )}
       </div>

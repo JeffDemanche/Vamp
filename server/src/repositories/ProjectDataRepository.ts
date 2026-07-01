@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
-import type { ProjectClip } from "../entities/ProjectClip";
+import type { ClipMode, ProjectClip } from "../entities/ProjectClip";
+import type { AudioInClip } from "../entities/AudioInClip";
 import { ProjectData, ProjectDataModel } from "../entities/ProjectData";
 
 /** An embedded track to seed onto a new {@link ProjectData}. */
@@ -21,11 +22,21 @@ export interface CreateProjectDataInput {
   tracks?: CreateProjectTrackData[];
 }
 
+/** Fields needed for each embedded {@link AudioInClip} at creation time. */
+export interface AddAudioInClipData {
+  start: number;
+  duration: number;
+  audioOffset: number;
+}
+
 /** The fields needed to append an embedded {@link ProjectClip}. */
 export interface AddClipData {
   start: number;
   duration: number;
+  maxDuration: number;
+  mode: ClipMode;
   audioOffset: number;
+  audioInClips: AddAudioInClipData[];
   /** `_id` of the embedded `ProjectTrack` the clip lives on. */
   track: string;
   /** `_id` of the `ProjectAudio` the clip plays. */
@@ -40,8 +51,12 @@ export interface AddClipData {
 export interface UpdateClipData {
   /** New timeline start position, in samples. */
   start?: number;
+  /** New clip length, in samples. Clamped to `maxDuration` by the service. */
+  duration?: number;
   /** `_id` of the `ProjectTrack` the clip should now live on. */
   track?: string;
+  /** Updated audio-in-clip placements (e.g. after repositioning the clip). */
+  audioInClips?: AudioInClip[];
 }
 
 /**
@@ -67,7 +82,15 @@ export class ProjectDataRepository {
    * can be located in the updated document and returned to the caller.
    */
   async addClip(projectDataId: string, data: AddClipData): Promise<ProjectClip> {
-    const clip = { _id: new Types.ObjectId().toHexString(), ...data };
+    const audioInClips = data.audioInClips.map((aic) => ({
+      _id: new Types.ObjectId().toHexString(),
+      ...aic,
+    }));
+    const clip = {
+      _id: new Types.ObjectId().toHexString(),
+      ...data,
+      audioInClips,
+    };
     const doc = await ProjectDataModel.findByIdAndUpdate(
       projectDataId,
       { $push: { clips: clip } },
@@ -123,9 +146,13 @@ export class ProjectDataRepository {
     clipId: string,
     data: UpdateClipData,
   ): Promise<ProjectClip> {
-    const set: Record<string, number | string> = {};
+    const set: Record<string, number | string | AudioInClip[]> = {};
     if (data.start !== undefined) set["clips.$[clip].start"] = data.start;
+    if (data.duration !== undefined) set["clips.$[clip].duration"] = data.duration;
     if (data.track !== undefined) set["clips.$[clip].track"] = data.track;
+    if (data.audioInClips !== undefined) {
+      set["clips.$[clip].audioInClips"] = data.audioInClips;
+    }
 
     if (Object.keys(set).length === 0) {
       const existing = await this.findById(projectDataId);

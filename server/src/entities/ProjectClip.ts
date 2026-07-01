@@ -1,11 +1,27 @@
-import { prop, type Ref } from "@typegoose/typegoose";
-import { Field, ID, Int, ObjectType } from "type-graphql";
+import { prop, PropType, type Ref } from "@typegoose/typegoose";
+import { Field, ID, Int, ObjectType, registerEnumType } from "type-graphql";
+import { AudioInClip } from "./AudioInClip";
 import { ProjectTrack } from "./ProjectTrack";
 // `ProjectClip` is embedded on `ProjectData`, which `ProjectAudio` transitively
 // imports — so import the type only and reference the model by name in `ref` to
 // avoid a circular runtime import that would break eager schema building.
 import type { ProjectAudio } from "./ProjectAudio";
 import { User } from "./User";
+
+/**
+ * How a {@link ProjectClip} schedules its underlying audio for playback.
+ * `FLAT` plays the audio once; `STACKED` re-triggers it at every loop point
+ * (using the audio's `loopLength`) so looped recordings stack on themselves.
+ */
+export enum ClipMode {
+  FLAT = "FLAT",
+  STACKED = "STACKED",
+}
+
+registerEnumType(ClipMode, {
+  name: "ClipMode",
+  description: "How a ProjectClip schedules its underlying audio for playback.",
+});
 
 /**
  * A clip placed on a {@link ProjectTrack} within a {@link ProjectData} timeline.
@@ -38,12 +54,36 @@ export class ProjectClip {
   duration!: number;
 
   /**
+   * The clip's original size, in samples — set at creation and never exceeded
+   * by `duration`. Clips may only be shortened, not lengthened.
+   */
+  @Field(() => Int)
+  @prop({ required: true })
+  maxDuration!: number;
+
+  /**
+   * How this clip schedules its underlying audio. `FLAT` plays once;
+   * `STACKED` re-triggers at every loop point (see `ProjectAudio.loopLength`).
+   */
+  @Field(() => ClipMode)
+  @prop({ required: true, enum: ClipMode, default: ClipMode.FLAT })
+  mode!: ClipMode;
+
+  /**
    * How many samples into the underlying {@link ProjectAudio} this clip starts
    * playing from. Defaults to `0` (the very beginning of the audio).
    */
   @Field(() => Int)
   @prop({ required: true, default: 0 })
   audioOffset!: number;
+
+  /**
+   * The dispatched playback events for this clip — one per audio layer/pass.
+   * Baked at creation; intrinsic durations may extend past a trimmed clip envelope.
+   */
+  @Field(() => [AudioInClip!]!)
+  @prop({ type: () => AudioInClip, default: [] }, PropType.ARRAY)
+  audioInClips!: AudioInClip[];
 
   @Field(() => ID)
   @prop({ required: true })

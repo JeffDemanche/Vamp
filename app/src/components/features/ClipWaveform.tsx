@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import { resolveScheduledEvent, type AudioInClipSpec } from "@vamp/shared"
 import { useAudioBuffer } from "@/audio/AudioEngineProvider"
 import { computeClipPeaks } from "@/audio/waveformPeaks"
 import { Waveform } from "@/components/primitives/waveform"
@@ -32,49 +33,131 @@ function resolveWaveColor(token: string, alphaPercent: number): string {
 /**
  * The waveform drawn in the background of a placed clip. Pulls the clip's source
  * audio straight from the {@link useAudioBuffer engine's decoded buffer} (no
- * re-fetch), reduces the clip's `[audioOffset, audioOffset + duration)` window
- * to peaks, and hands them to the pure {@link Waveform} primitive.
+ * re-fetch), reduces each {@link AudioInClipSpec}'s effective window to peaks,
+ * and hands them to the pure {@link Waveform} primitive.
+ *
+ * For a **stacked** clip one waveform layer is drawn per baked `AudioInClip`,
+ * intersected with the clip trim envelope so trimmed clips truncate each layer
+ * at the clip end. Flat clips draw a single layer.
  *
  * Renders nothing until the buffer has downloaded/decoded, so the clip shows its
- * plain surface first and the waveform fades in once bytes land. Its colour
- * tracks the clip's `selected`/`hovered` state to match the shared selection
- * styling — foreground-on-fill when lit up, a subtle tint otherwise.
- *
- * Mount inside an `AudioEngineProvider` (for the buffer) and a timeline editor
- * (for the sample rate). Times are in samples (see `AGENTS.md`).
+ * plain surface first and the waveform fades in once bytes land.
  */
 export function ClipWaveform({
   audioId,
-  audioOffset,
-  duration,
+  buffer: bufferOverride,
+  clipStart,
+  clipDuration,
+  audioInClips,
   selected,
   hovered,
+  variant = "standard",
 }: {
-  audioId: string
-  /** Sample offset into the source audio where the clip's window begins. */
-  audioOffset: number
-  /** Clip length, in samples — the width of the audio window shown. */
-  duration: number
+  audioId?: string
+  /** When set, draws from this buffer instead of fetching `audioId` from the engine. */
+  buffer?: AudioBuffer | null
+  /** Clip trim envelope start (timeline samples). */
+  clipStart: number
+  /** Clip trim envelope duration (timeline samples). */
+  clipDuration: number
+  /** Baked dispatched events — one waveform layer per entry. */
+  audioInClips: readonly AudioInClipSpec[]
   selected: boolean
   hovered: boolean
+  /** Colour scheme for the waveform (`recording` uses destructive tokens). */
+  variant?: "standard" | "recording"
 }) {
-  const buffer = useAudioBuffer(audioId)
+  const bufferFromEngine = useAudioBuffer(bufferOverride ? null : audioId)
+  const buffer = bufferOverride ?? bufferFromEngine
   const { sampleRate } = useTimelineViewport()
 
-  const peaks = React.useMemo(
-    () => (buffer ? computeClipPeaks(buffer, audioOffset, duration) : null),
-    [buffer, audioOffset, duration],
-  )
+  const layers = React.useMemo(() => {
+    if (!buffer) return null
+    const envelope = { start: clipStart, duration: clipDuration }
+    return audioInClips.flatMap((aic) => {
+      const resolved = resolveScheduledEvent(aic, envelope)
+      if (!resolved) return []
+      const timelineSamples = resolved.endSample - resolved.startSample
+      const offset = resolved.bufferOffset
+      const audioSamples = Math.max(
+        0,
+        Math.min(timelineSamples, buffer.length - offset),
+      )
+      return [
+        {
+          peaks: computeClipPeaks(buffer, offset, audioSamples),
+          widthFraction:
+            clipDuration > 0 ? timelineSamples / clipDuration : 1,
+          seconds: audioSamples / sampleRate,
+        },
+      ]
+    })
+  }, [buffer, clipStart, clipDuration, audioInClips, sampleRate])
 
+  const layerCount = layers?.length ?? 1
   const waveColor = React.useMemo(() => {
-    if (selected) return resolveWaveColor("--primary-foreground", WAVE_ALPHA.selected)
-    if (hovered) return resolveWaveColor("--accent-foreground", WAVE_ALPHA.hovered)
-    return resolveWaveColor("--foreground", WAVE_ALPHA.default)
-  }, [selected, hovered])
+    if (variant === "recording") {
+      return resolveWaveColor(
+        "--destructive-foreground",
+        WAVE_ALPHA.default / layerCount,
+      )
+    }
+    if (selected)
+      return resolveWaveColor("--primary-foreground", WAVE_ALPHA.selected / layerCount)
+    if (hovered)
+      return resolveWaveColor("--accent-foreground", WAVE_ALPHA.hovered / layerCount)
+    return resolveWaveColor("--foreground", WAVE_ALPHA.default / layerCount)
+  }, [selected, hovered, layerCount, variant])
 
-  if (!peaks) return null
+  if (!layers || layers.length === 0) return null
+
+  if (layers.length === 1) {
+    const layer = layers[0]!
+    return (
+      <WaveformLayer
+        peaks={layer.peaks}
+        seconds={layer.seconds}
+        widthFraction={layer.widthFraction}
+        waveColor={waveColor}
+      />
+    )
+  }
 
   return (
-    <Waveform peaks={peaks} duration={duration / sampleRate} waveColor={waveColor} />
+    <div className="relative h-full w-full">
+      {layers.map((layer, k) => (
+        <div key={k} className="absolute inset-0">
+          <WaveformLayer
+            peaks={layer.peaks}
+            seconds={layer.seconds}
+            widthFraction={layer.widthFraction}
+            waveColor={waveColor}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Renders peaks at the correct scale when clip duration exceeds audio length. */
+function WaveformLayer({
+  peaks,
+  seconds,
+  widthFraction,
+  waveColor,
+}: {
+  peaks: Float32Array
+  seconds: number
+  widthFraction: number
+  waveColor: string
+}) {
+  const body = (
+    <Waveform peaks={peaks} duration={seconds} waveColor={waveColor} />
+  )
+  if (widthFraction >= 1) return body
+  return (
+    <div className="h-full" style={{ width: `${widthFraction * 100}%` }}>
+      {body}
+    </div>
   )
 }

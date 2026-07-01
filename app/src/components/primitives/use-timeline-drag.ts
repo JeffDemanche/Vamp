@@ -52,6 +52,8 @@ export type TimelineDragHandlers = {
   onPointerMove: (event: React.PointerEvent) => void
   onPointerUp: (event: React.PointerEvent) => void
   onPointerCancel: (event: React.PointerEvent) => void
+  /** Fires when pointer capture is lost before pointer-up (e.g. browser steals it). */
+  onLostPointerCapture: (event: React.PointerEvent) => void
 }
 
 export type UseTimelineDrag = {
@@ -125,6 +127,7 @@ export function useTimelineDrag(
       onPointerMove,
       onPointerUp: finish,
       onPointerCancel: finish,
+      onLostPointerCapture: finish,
     },
     dragging,
   }

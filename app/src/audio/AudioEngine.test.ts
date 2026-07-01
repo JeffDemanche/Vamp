@@ -1,4 +1,4 @@
-import { AudioEngine, type AudioEngineState } from "./AudioEngine";
+import { AudioEngine, type AudioEngineClip, type AudioEngineState } from "./AudioEngine";
 
 /**
  * jsdom has no Web Audio API, so we drive the engine with a hand-rolled fake
@@ -39,6 +39,7 @@ class FakeBufferSource {
 class FakeAudioContext {
   currentTime = 0;
   state: AudioContextState = "running";
+  sampleRate = SAMPLE_RATE;
   destination = {} as AudioDestinationNode;
   sources: FakeBufferSource[] = [];
   closed = false;
@@ -51,6 +52,38 @@ class FakeAudioContext {
     const source = new FakeBufferSource();
     this.sources.push(source);
     return source as unknown as AudioBufferSourceNode;
+  }
+
+  createMediaStreamSource(_stream: MediaStream) {
+    return {
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    } as unknown as MediaStreamAudioSourceNode;
+  }
+
+  createScriptProcessor(_bufferSize: number, _inputChannels: number, _outputChannels: number) {
+    const processor = {
+      onaudioprocess: null as ((event: AudioProcessingEvent) => void) | null,
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    };
+    return processor as unknown as ScriptProcessorNode;
+  }
+
+  createBuffer(channels: number, length: number, sampleRate: number) {
+    const channelData = Array.from({ length: channels }, () => new Float32Array(length));
+    return {
+      length,
+      duration: length / sampleRate,
+      numberOfChannels: channels,
+      sampleRate,
+      copyToChannel(source: Float32Array, channelNumber: number) {
+        channelData[channelNumber]?.set(source);
+      },
+      getChannelData(channelNumber: number) {
+        return channelData[channelNumber] ?? new Float32Array(0);
+      },
+    } as unknown as AudioBuffer;
   }
 
   decodeAudioData(_data: ArrayBuffer): Promise<AudioBuffer> {
@@ -109,21 +142,35 @@ class FakeMediaRecorder {
   }
 }
 
-function makeRecordingEngine() {
+function makeRecordingEngine(options: { onMediaStreamRequest?: () => void } = {}) {
   const ctx = new FakeAudioContext();
   const tracks = [{ stop: jest.fn() }];
   const stream = { getTracks: () => tracks } as unknown as MediaStream;
   const recorders: FakeMediaRecorder[] = [];
+  const recordingProcessors: Array<{
+    onaudioprocess: ((event: AudioProcessingEvent) => void) | null;
+  }> = [];
   const engine = new AudioEngine({
     contextFactory: () => ctx as unknown as AudioContext,
-    mediaStreamProvider: () => Promise.resolve(stream),
+    mediaStreamProvider: () => {
+      options.onMediaStreamRequest?.();
+      return Promise.resolve(stream);
+    },
     mediaRecorderFactory: (s, options) => {
       const recorder = new FakeMediaRecorder(s, options);
       recorders.push(recorder);
       return recorder as unknown as MediaRecorder;
     },
   });
-  return { ctx, engine, recorders, tracks };
+  const originalCreateScriptProcessor = ctx.createScriptProcessor.bind(ctx);
+  ctx.createScriptProcessor = (...args) => {
+    const processor = originalCreateScriptProcessor(...args) as unknown as {
+      onaudioprocess: ((event: AudioProcessingEvent) => void) | null;
+    };
+    recordingProcessors.push(processor);
+    return processor as unknown as ScriptProcessorNode;
+  };
+  return { ctx, engine, recorders, tracks, recordingProcessors };
 }
 
 function stateWith(overrides: Partial<AudioEngineState> = {}): AudioEngineState {
@@ -134,6 +181,44 @@ function stateWith(overrides: Partial<AudioEngineState> = {}): AudioEngineState 
     playEnd: 0,
     loop: false,
     ...overrides,
+  };
+}
+
+function flatClip(
+  clip: Pick<AudioEngineClip, "id" | "audioId" | "start" | "duration"> & {
+    audioOffset?: number;
+  },
+): AudioEngineClip {
+  const audioOffset = clip.audioOffset ?? 0;
+  return {
+    id: clip.id,
+    audioId: clip.audioId,
+    start: clip.start,
+    duration: clip.duration,
+    audioInClips: [
+      { start: clip.start, duration: clip.duration, audioOffset },
+    ],
+  };
+}
+
+function stackedClip(
+  clip: Pick<AudioEngineClip, "id" | "audioId" | "start" | "duration"> & {
+    loopLength: number;
+    passes: number;
+    audioOffset?: number;
+  },
+): AudioEngineClip {
+  const baseOffset = clip.audioOffset ?? 0;
+  return {
+    id: clip.id,
+    audioId: clip.audioId,
+    start: clip.start,
+    duration: clip.duration,
+    audioInClips: Array.from({ length: clip.passes }, (_, k) => ({
+      start: clip.start,
+      duration: clip.duration,
+      audioOffset: baseOffset + k * clip.loopLength,
+    })),
   };
 }
 
@@ -152,8 +237,8 @@ describe("AudioEngine", () => {
     engine.update(
       stateWith({
         clips: [
-          { id: "c1", audioId: "a1", start: 100, duration: 50, offset: 10 },
-          { id: "c2", audioId: "a2", start: 200, duration: 25 },
+          flatClip({ id: "c1", audioId: "a1", start: 100, duration: 50, audioOffset: 10 }),
+          flatClip({ id: "c2", audioId: "a2", start: 200, duration: 25 }),
         ],
       }),
     );
@@ -161,6 +246,55 @@ describe("AudioEngine", () => {
     expect(engine.audioEvents).toEqual([
       { clipId: "c1", audioId: "a1", startSample: 100, endSample: 150, bufferOffset: 10 },
       { clipId: "c2", audioId: "a2", startSample: 200, endSample: 225, bufferOffset: 0 },
+    ]);
+  });
+
+  it("overlays a stacked clip's recorded loop passes within its loop region", () => {
+    const { engine } = makeEngine();
+    engine.update(
+      stateWith({
+        clips: [
+          stackedClip({
+            id: "c1",
+            audioId: "a1",
+            start: 0,
+            duration: SAMPLE_RATE,
+            loopLength: SAMPLE_RATE,
+            passes: 3,
+          }),
+        ],
+      }),
+    );
+
+    expect(engine.audioEvents).toEqual([
+      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE, bufferOffset: 0 },
+      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE, bufferOffset: SAMPLE_RATE },
+      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE, bufferOffset: 2 * SAMPLE_RATE },
+    ]);
+  });
+
+  it("truncates audio events at the clip envelope when the clip is trimmed shorter", () => {
+    const { engine } = makeEngine();
+    engine.update(
+      stateWith({
+        clips: [
+          {
+            id: "c1",
+            audioId: "a1",
+            start: 0,
+            duration: SAMPLE_RATE / 2,
+            audioInClips: [
+              { start: 0, duration: SAMPLE_RATE, audioOffset: 0 },
+              { start: 0, duration: SAMPLE_RATE, audioOffset: SAMPLE_RATE },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(engine.audioEvents).toEqual([
+      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE / 2, bufferOffset: 0 },
+      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE / 2, bufferOffset: SAMPLE_RATE },
     ]);
   });
 
@@ -176,7 +310,7 @@ describe("AudioEngine", () => {
     engine.update(
       stateWith({
         playStart: 0,
-        clips: [{ id: "c1", audioId: "a1", start: SAMPLE_RATE, duration: SAMPLE_RATE }],
+        clips: [flatClip({ id: "c1", audioId: "a1", start: SAMPLE_RATE, duration: SAMPLE_RATE })],
       }),
     );
 
@@ -191,9 +325,42 @@ describe("AudioEngine", () => {
     expect(call?.duration).toBeCloseTo(1);
   });
 
+  it("schedules an overlaid source per recorded loop pass for a stacked clip", () => {
+    const { ctx, engine } = makeEngine();
+    engine.setAudioBuffer("a1", { duration: 2 } as AudioBuffer);
+    const loopLength = SAMPLE_RATE;
+    engine.update(
+      stateWith({
+        playStart: 0,
+        clips: [
+          stackedClip({
+            id: "c1",
+            audioId: "a1",
+            start: 0,
+            duration: loopLength,
+            loopLength,
+            passes: 2,
+          }),
+        ],
+      }),
+    );
+
+    engine.play();
+
+    // Both passes begin together at the clip start and last one loop region,
+    // each reading a different loop-length slice of the recording.
+    expect(ctx.sources).toHaveLength(2);
+    expect(ctx.sources[0].startCall?.when).toBeCloseTo(0);
+    expect(ctx.sources[0].startCall?.offset).toBeCloseTo(0);
+    expect(ctx.sources[0].startCall?.duration).toBeCloseTo(1);
+    expect(ctx.sources[1].startCall?.when).toBeCloseTo(0);
+    expect(ctx.sources[1].startCall?.offset).toBeCloseTo(1);
+    expect(ctx.sources[1].startCall?.duration).toBeCloseTo(1);
+  });
+
   it("skips clips whose audio is not loaded", () => {
     const { ctx, engine } = makeEngine();
-    engine.update(stateWith({ clips: [{ id: "c1", audioId: "missing", start: 0, duration: 100 }] }));
+    engine.update(stateWith({ clips: [flatClip({ id: "c1", audioId: "missing", start: 0, duration: 100 })] }));
     engine.play();
     expect(ctx.sources).toHaveLength(0);
   });
@@ -204,7 +371,7 @@ describe("AudioEngine", () => {
     engine.update(
       stateWith({
         playStart: SAMPLE_RATE, // half a second into the clip below
-        clips: [{ id: "c1", audioId: "a1", start: SAMPLE_RATE / 2, duration: SAMPLE_RATE * 4 }],
+        clips: [flatClip({ id: "c1", audioId: "a1", start: SAMPLE_RATE / 2, duration: SAMPLE_RATE * 4 })],
       }),
     );
 
@@ -247,7 +414,7 @@ describe("AudioEngine", () => {
   it("freezes the timecode where it stopped and stops sources", () => {
     const { ctx, engine } = makeEngine();
     engine.setAudioBuffer("a1", fakeBuffer);
-    engine.update(stateWith({ clips: [{ id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 }] }));
+    engine.update(stateWith({ clips: [flatClip({ id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 })] }));
     engine.play();
 
     ctx.currentTime += 1;
@@ -320,7 +487,7 @@ describe("AudioEngine", () => {
   it("re-schedules from the current position when updated mid-playback", () => {
     const { ctx, engine } = makeEngine();
     engine.setAudioBuffer("a1", fakeBuffer);
-    engine.update(stateWith({ clips: [{ id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 }] }));
+    engine.update(stateWith({ clips: [flatClip({ id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 })] }));
     engine.play();
 
     ctx.currentTime += 1;
@@ -331,8 +498,8 @@ describe("AudioEngine", () => {
     engine.update(
       stateWith({
         clips: [
-          { id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 },
-          { id: "c2", audioId: "a2", start: 0, duration: SAMPLE_RATE * 10 },
+          flatClip({ id: "c1", audioId: "a1", start: 0, duration: SAMPLE_RATE * 10 }),
+          flatClip({ id: "c2", audioId: "a2", start: 0, duration: SAMPLE_RATE * 10 }),
         ],
       }),
     );
@@ -422,6 +589,77 @@ describe("AudioEngine", () => {
     expect(engine.isRecording).toBe(false);
   });
 
+  it("captures loopLength when recording with looping transport", async () => {
+    const { ctx, engine } = makeRecordingEngine();
+    engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: true }));
+
+    const { loopLength } = await engine.startRecording({ startPlayback: true });
+    ctx.currentTime += 2;
+    const result = await engine.stopRecording();
+
+    expect(loopLength).toBe(SAMPLE_RATE);
+    expect(result.loopLength).toBe(SAMPLE_RATE);
+  });
+
+  it("omits loopLength when not looping", async () => {
+    const { ctx, engine } = makeRecordingEngine();
+    engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: false }));
+
+    const { loopLength } = await engine.startRecording();
+    ctx.currentTime += 1;
+    const result = await engine.stopRecording();
+
+    expect(loopLength).toBeUndefined();
+    expect(result.loopLength).toBeUndefined();
+  });
+
+  it("measures capture length on the audio clock independent of playhead wrap", async () => {
+    const { ctx, engine } = makeRecordingEngine();
+    engine.update(stateWith({ playStart: 0, playEnd: SAMPLE_RATE, loop: true }));
+
+    await engine.startRecording({ startPlayback: true });
+    ctx.currentTime += 1;
+    expect(engine.getRecordingCapturedSamples()).toBeCloseTo(SAMPLE_RATE);
+    expect(engine.timecode).toBeCloseTo(SAMPLE_RATE);
+
+    // Loop wrap: playhead jumps back to playStart while capture continues.
+    (engine as unknown as { handleEnded(): void }).handleEnded();
+    expect(engine.hasRecordingCrossedLoop()).toBe(true);
+    ctx.currentTime += 0.25;
+    expect(engine.timecode).toBeCloseTo(0.25 * SAMPLE_RATE);
+    expect(engine.getRecordingCapturedSamples()).toBeCloseTo(1.25 * SAMPLE_RATE);
+
+    // Playhead passes the recording start again — latch must keep placement.
+    ctx.currentTime += 0.75;
+    expect(engine.timecode).toBeCloseTo(SAMPLE_RATE);
+    expect(engine.hasRecordingCrossedLoop()).toBe(true);
+
+    const result = await engine.stopRecording();
+    expect(result.crossedLoopBoundary).toBe(true);
+  });
+
+  it("exposes live PCM through getRecordingBuffer while recording", async () => {
+    const { engine, recordingProcessors } = makeRecordingEngine();
+    engine.update(stateWith());
+
+    await engine.startRecording();
+    expect(engine.getRecordingBuffer()).toBeUndefined();
+
+    const samples = new Float32Array(128).fill(0.5);
+    recordingProcessors[0]?.onaudioprocess?.({
+      inputBuffer: {
+        getChannelData: () => samples,
+      },
+    } as unknown as AudioProcessingEvent);
+
+    const first = engine.getRecordingBuffer();
+    expect(first?.length).toBe(128);
+    expect(engine.getRecordingBuffer()).toBe(first);
+
+    await engine.stopRecording();
+    expect(engine.getRecordingBuffer()).toBeUndefined();
+  });
+
   it("releases the microphone tracks when a recording stops", async () => {
     const { ctx, engine, tracks } = makeRecordingEngine();
     engine.update(stateWith());
@@ -458,7 +696,58 @@ describe("AudioEngine", () => {
     expect(engine.isRecording).toBe(false);
   });
 
-  it("releases the context on dispose", () => {
+  it("reuses a prepared microphone stream on startRecording", async () => {
+    let providerCalls = 0;
+    const { ctx, engine } = makeRecordingEngine({
+      onMediaStreamRequest: () => {
+        providerCalls += 1;
+      },
+    });
+    engine.update(stateWith());
+
+    await engine.prepareRecording();
+    await engine.startRecording();
+
+    expect(providerCalls).toBe(1);
+    expect(engine.isRecording).toBe(true);
+    ctx.currentTime += 1;
+    await engine.stopRecording();
+  });
+
+  it("discards a prepared stream when the input device changes", async () => {
+    let providerCalls = 0;
+    const { engine } = makeRecordingEngine({
+      onMediaStreamRequest: () => {
+        providerCalls += 1;
+      },
+    });
+    engine.update(stateWith());
+
+    await engine.prepareRecording();
+    engine.setInputDeviceId("other-mic");
+    await engine.prepareRecording();
+
+    expect(providerCalls).toBe(2);
+  });
+
+  it("does not prepare a stream while a recording is active", async () => {
+    let providerCalls = 0;
+    const { ctx, engine } = makeRecordingEngine({
+      onMediaStreamRequest: () => {
+        providerCalls += 1;
+      },
+    });
+    engine.update(stateWith());
+
+    await engine.startRecording();
+    await engine.prepareRecording();
+
+    expect(providerCalls).toBe(1);
+    ctx.currentTime += 1;
+    await engine.stopRecording();
+  });
+
+  it("releases the context on dispose", async () => {
     const { ctx, engine } = makeEngine();
     engine.setAudioBuffer("a1", fakeBuffer);
     engine.update(stateWith());

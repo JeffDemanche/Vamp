@@ -11,6 +11,8 @@ export interface CreateAudioUploadInput {
   creatorId: string;
   contentType: string;
   filename?: string;
+  /** Loop length (samples) active when this take was recorded over a loop. */
+  loopLength?: number;
 }
 
 /**
@@ -68,6 +70,7 @@ export class ProjectAudioService {
       key,
       contentType: input.contentType,
       filename: input.filename,
+      loopLength: input.loopLength,
       creator: input.creatorId,
     });
 
@@ -119,5 +122,15 @@ export class ProjectAudioService {
       return Promise.resolve(null);
     }
     return this.storage.createDownloadUrl(audio.key);
+  }
+
+  /** Store the decoded recording length in timeline samples. */
+  async setDurationSamples(
+    audioId: string,
+    durationSamples: number,
+  ): Promise<ProjectAudio> {
+    const updated = await this.audios.setDurationSamples(audioId, durationSamples);
+    if (!updated) throw new Error(`ProjectAudio not found: ${audioId}`);
+    return updated;
   }
 }

@@ -45,16 +45,27 @@ export const testIds = {
   /** `ProjectView` — project editor at `/projects/:projectId`. */
   ProjectView: {
     root: "project-view",
+    backToHome: "project-back-to-home",
   },
   /** `ProjectsTable` — table of the user's projects on `UserHomeView`. */
   ProjectsTable: {
     table: "projects-table",
     empty: "projects-empty",
     error: "projects-error",
+    /** Per-row button that opens the archive confirmation for that project. */
+    archive: "projects-archive",
+    /** Confirm button in the archive confirmation dialog. */
+    archiveConfirm: "projects-archive-confirm",
+    /** Cancel button in the archive confirmation dialog. */
+    archiveCancel: "projects-archive-cancel",
   },
   /** `TimelineToolbar` — playback/record toolbar above the timeline. */
   TimelineToolbar: {
     root: "timeline-toolbar",
+    recordingSettingsTrigger: "recording-settings-trigger",
+    recordingSettingsContent: "recording-settings-content",
+    recordingInputSelect: "recording-input-select",
+    recordingOutputSelect: "recording-output-select",
   },
   /** `TrackPane` — track list to the left of the timeline. */
   TrackPane: {

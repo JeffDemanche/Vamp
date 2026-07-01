@@ -1,11 +1,17 @@
 import { useQuery } from "@apollo/client/react";
 import * as React from "react";
 
+import {
+  defaultAudioDeviceId,
+  enumerateAudioDevices,
+  audioOutputSelectionSupported,
+  type AudioDevice,
+} from "@/audio/audioDevices";
 import { ProjectQuery } from "@/projects/queries";
 import { useTimelinePlayback, useTimelineViewport } from "@/state/timeline";
 import { ensureAudioLoaded } from "./audioLoader";
 import { AudioEngine, type AudioEngineState } from "./AudioEngine";
-import { filterReadyAudios, toAudioEngineClip } from "./clipMapping";
+import { collectProjectAudios, toAudioEngineClip } from "./clipMapping";
 
 /**
  * Owns a single {@link AudioEngine} instance scoped to one timeline editor and
@@ -60,7 +66,7 @@ export function AudioEngineProvider({
     let cancelled = false;
 
     void (async () => {
-      for (const audio of filterReadyAudios(audios)) {
+      for (const audio of collectProjectAudios(audios, clips)) {
         try {
           await ensureAudioLoaded(engine, audio);
         } catch (err) {
@@ -109,6 +115,76 @@ export function useAudioBuffer(audioId: string | null | undefined): AudioBuffer 
   );
 }
 
+/**
+ * The PCM captured so far during an active recording, resampled to the timeline
+ * sample rate, or `null` when not recording. Re-renders as the mic tap appends
+ * frames so the live `RecordingClip` waveform can track the take.
+ */
+export function useRecordingBuffer(): AudioBuffer | null {
+  const engine = useAudioEngine();
+  return React.useSyncExternalStore(
+    (onChange) => engine.subscribeRecordingBuffer(onChange),
+    () => engine.getRecordingBuffer() ?? null,
+  );
+}
+
+/**
+ * How much audio has been captured during the active recording, in timeline
+ * samples. Polled on `requestAnimationFrame` while `active` so the live
+ * `RecordingClip` width tracks capture progress even when the transport loops
+ * and the playhead wraps.
+ */
+export function useRecordingCapturedSamples(active: boolean): number {
+  const engine = useAudioEngine();
+  const [samples, setSamples] = React.useState(() =>
+    engine.getRecordingCapturedSamples(),
+  );
+
+  React.useEffect(() => {
+    if (!active) {
+      setSamples(engine.getRecordingCapturedSamples());
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      setSamples(engine.getRecordingCapturedSamples());
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [engine, active]);
+
+  return samples;
+}
+
+/**
+ * Whether playback has looped at least once during the active recording. Polled
+ * on `requestAnimationFrame` while `active` so the live `RecordingClip` stays
+ * anchored at `playStart` after the first loop-back.
+ */
+export function useRecordingCrossedLoop(active: boolean): boolean {
+  const engine = useAudioEngine();
+  const [crossed, setCrossed] = React.useState(() =>
+    engine.hasRecordingCrossedLoop(),
+  );
+
+  React.useEffect(() => {
+    if (!active) {
+      setCrossed(engine.hasRecordingCrossedLoop());
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      setCrossed(engine.hasRecordingCrossedLoop());
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [engine, active]);
+
+  return crossed;
+}
+
 /** Subscribe to the engine's playing state, re-rendering when it flips. */
 export function useAudioEnginePlaying(): boolean {
   const engine = useAudioEngine();
@@ -116,6 +192,79 @@ export function useAudioEnginePlaying(): boolean {
     (onChange) => engine.subscribe(onChange),
     () => engine.isPlaying,
   );
+}
+
+export type AudioDevicesState = {
+  inputs: AudioDevice[];
+  outputs: AudioDevice[];
+  inputDeviceId: string;
+  outputDeviceId: string;
+  setInputDeviceId: (deviceId: string) => void;
+  setOutputDeviceId: (deviceId: string) => void;
+  /** Whether the browser exposes output routing via `AudioContext.setSinkId`. */
+  outputSelectionSupported: boolean;
+};
+
+/**
+ * Enumerates audio input/output devices and keeps the editor's `AudioEngine`
+ * in sync with the user's selections.
+ */
+export function useAudioDevices(): AudioDevicesState {
+  const engine = useAudioEngine();
+  const defaultId = defaultAudioDeviceId();
+  const [inputs, setInputs] = React.useState<AudioDevice[]>([]);
+  const [outputs, setOutputs] = React.useState<AudioDevice[]>([]);
+  const [inputDeviceId, setInputDeviceIdState] = React.useState(
+    () => engine.getInputDeviceId() ?? defaultId,
+  );
+  const [outputDeviceId, setOutputDeviceIdState] = React.useState(
+    () => engine.getOutputDeviceId() ?? defaultId,
+  );
+  const outputSelectionSupported = audioOutputSelectionSupported();
+
+  const setInputDeviceId = React.useCallback(
+    (deviceId: string) => {
+      setInputDeviceIdState(deviceId);
+      engine.setInputDeviceId(deviceId === defaultId ? null : deviceId);
+    },
+    [defaultId, engine],
+  );
+
+  const setOutputDeviceId = React.useCallback(
+    (deviceId: string) => {
+      setOutputDeviceIdState(deviceId);
+      engine.setOutputDeviceId(deviceId === defaultId ? null : deviceId);
+    },
+    [defaultId, engine],
+  );
+
+  React.useEffect(() => {
+    let active = true;
+
+    async function refreshDevices(): Promise<void> {
+      const listed = await enumerateAudioDevices();
+      if (!active) return;
+      setInputs(listed.inputs);
+      setOutputs(listed.outputs);
+    }
+
+    void refreshDevices();
+    navigator.mediaDevices?.addEventListener("devicechange", refreshDevices);
+    return () => {
+      active = false;
+      navigator.mediaDevices?.removeEventListener("devicechange", refreshDevices);
+    };
+  }, []);
+
+  return {
+    inputs,
+    outputs,
+    inputDeviceId,
+    outputDeviceId,
+    setInputDeviceId,
+    setOutputDeviceId,
+    outputSelectionSupported,
+  };
 }
 
 /**

@@ -8,15 +8,35 @@ input ArchiveClipsInput {
   projectId: ID!
 }
 
+type AudioInClip {
+  _id: ID!
+  audioOffset: Int!
+  duration: Int!
+  start: Int!
+}
+
+input AudioInClipInput {
+  audioOffset: Int!
+  duration: Int!
+  start: Int!
+}
+
 """Upload lifecycle of a ProjectAudio's underlying S3 object."""
 enum AudioUploadStatus {
   PENDING
   READY
 }
 
+"""How a ProjectClip schedules its underlying audio for playback."""
+enum ClipMode {
+  FLAT
+  STACKED
+}
+
 input CreateAudioUploadInput {
   contentType: String!
   filename: String
+  loopLength: Int
   projectId: ID!
 }
 
@@ -27,8 +47,11 @@ type CreateAudioUploadPayload {
 
 input CreateClipInput {
   audioId: ID!
+  audioInClips: [AudioInClipInput!]!
   audioOffset: Int! = 0
   duration: Int!
+  durationSamples: Int
+  mode: ClipMode! = FLAT
   projectId: ID!
   start: Int!
   trackId: ID!
@@ -94,17 +117,22 @@ type ProjectAudio {
   contentType: String!
   createdAt: DateTimeISO!
   downloadUrl: String
+  durationSamples: Int
   filename: String
   key: String!
+  loopLength: Int
   uploadStatus: AudioUploadStatus!
 }
 
 type ProjectClip {
   _id: ID!
   audio: ProjectAudio!
+  audioInClips: [AudioInClip!]!
   audioOffset: Int!
   createdAt: DateTimeISO!
   duration: Int!
+  maxDuration: Int!
+  mode: ClipMode!
   start: Int!
   track: ID!
 }
@@ -167,6 +195,7 @@ input RegisterInput {
 
 input UpdateClipInput {
   clipId: ID!
+  duration: Int
   projectId: ID!
   start: Int
   track: ID

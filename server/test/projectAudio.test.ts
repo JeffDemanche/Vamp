@@ -85,6 +85,12 @@ const CREATE_CLIP = /* GraphQL */ `
       duration
       audioOffset
       track
+      audioInClips {
+        _id
+        start
+        duration
+        audioOffset
+      }
       audio {
         _id
         uploadStatus
@@ -94,6 +100,10 @@ const CREATE_CLIP = /* GraphQL */ `
     }
   }
 `;
+
+function flatAudioInClips(start: number, duration: number, audioOffset = 0) {
+  return [{ start, duration, audioOffset }];
+}
 
 const GET_PROJECT_CLIPS = /* GraphQL */ `
   query ProjectClips($id: ID!) {
@@ -250,6 +260,7 @@ describe("ProjectAudio + ProjectClip API (presigned upload -> clip)", () => {
           start: 44_100,
           duration: 88_200,
           audioOffset: 1_024,
+          audioInClips: flatAudioInClips(44_100, 88_200, 1_024),
         },
       },
       asUser(userId),
@@ -302,6 +313,7 @@ describe("ProjectAudio + ProjectClip API (presigned upload -> clip)", () => {
           audioId: upload.audio._id,
           start: 0,
           duration: 100,
+          audioInClips: flatAudioInClips(0, 100),
         },
       },
       asUser(userId),
@@ -327,6 +339,7 @@ describe("ProjectAudio + ProjectClip API (presigned upload -> clip)", () => {
           audioId: upload.audio._id,
           start: 0,
           duration: 100,
+          audioInClips: flatAudioInClips(0, 100),
         },
       },
       asUser(userId),
@@ -357,6 +370,7 @@ describe("ProjectAudio + ProjectClip API (presigned upload -> clip)", () => {
           audioId: linked.audio._id,
           start: 0,
           duration: 100,
+          audioInClips: flatAudioInClips(0, 100),
         },
       },
       asUser(userId),

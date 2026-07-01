@@ -1,6 +1,9 @@
 import { useQuery } from "@apollo/client/react";
-import { Loader2 } from "lucide-react";
-import { useParams } from "react-router-dom";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { useEffect } from "react";
+import { Link, useParams } from "react-router-dom";
+import { Button } from "@/components/primitives/button";
+import { logError } from "@/lib/errors";
 import { ClipHotkeys } from "@/components/features/ClipHotkeys";
 import { ProjectTitleField } from "@/components/features/ProjectTitleField";
 import { EditorProvider } from "@/components/features/EditorProvider";
@@ -17,6 +20,10 @@ export function ProjectView() {
     variables: { id: projectId ?? "" },
     skip: !projectId,
   });
+
+  useEffect(() => {
+    if (error) logError(`Failed to load project ${projectId ?? ""}`, error);
+  }, [error, projectId]);
 
   if (loading) {
     return (
@@ -44,9 +51,21 @@ export function ProjectView() {
           <h1 className="text-2xl font-bold tracking-tight">Vamp not found</h1>
           <p className="mt-1 text-muted-foreground">
             {error
-              ? `Could not load this Vamp: ${error.message}`
+              ? "Something went wrong loading this Vamp."
               : "This Vamp doesn't exist or you don't have access to it."}
           </p>
+          <Button
+            asChild
+            variant="link"
+            size="sm"
+            className="mt-3 h-auto px-1 text-muted-foreground hover:text-foreground"
+            data-testid={testIds.ProjectView.backToHome}
+          >
+            <Link to="/home">
+              <ArrowLeft aria-hidden />
+              Your Vamps
+            </Link>
+          </Button>
         </div>
       </div>
     );
@@ -58,6 +77,18 @@ export function ProjectView() {
       className="flex h-screen flex-col bg-background px-6 py-8 text-foreground"
     >
       <header className="shrink-0">
+        <Button
+          asChild
+          variant="link"
+          size="sm"
+          className="h-auto px-1 text-muted-foreground hover:text-foreground"
+          data-testid={testIds.ProjectView.backToHome}
+        >
+          <Link to="/home">
+            <ArrowLeft aria-hidden />
+            Your Vamps
+          </Link>
+        </Button>
         <ProjectTitleField projectId={project._id} title={project.title} />
         <p className="mt-1 px-1 text-sm text-muted-foreground">
           Owned by {project.owner.user.username}

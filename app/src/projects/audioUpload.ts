@@ -1,4 +1,7 @@
 import type { ApolloClient } from "@apollo/client";
+import { deriveAudioInClips, type AudioInClipSpec } from "@vamp/shared";
+
+import type { AudioEngine } from "@/audio/AudioEngine";
 import {
   CreateAudioUploadMutation,
   CreateClipMutation,
@@ -16,6 +19,14 @@ export interface NewClipPlacement {
   duration: number;
   /** Offset into the underlying audio to begin at, in samples. Defaults to 0. */
   audioOffset?: number;
+  /** How the clip schedules its underlying audio. Defaults to `FLAT`. */
+  mode?: "FLAT" | "STACKED";
+  /** Loop length (samples) for stacked recordings. Stored on the audio record. */
+  loopLength?: number;
+  /** Baked playback events for this clip. */
+  audioInClips: AudioInClipSpec[];
+  /** Recorded audio length in samples (stored on the audio for stacked backfill). */
+  durationSamples: number;
 }
 
 /**
@@ -34,6 +45,7 @@ export async function uploadAudioAndCreateClip(
   client: ApolloClient,
   file: File | Blob,
   placement: NewClipPlacement,
+  options?: { engine?: AudioEngine },
 ) {
   const contentType = file.type || "application/octet-stream";
   const filename = file instanceof File ? file.name : undefined;
@@ -41,12 +53,19 @@ export async function uploadAudioAndCreateClip(
   const uploadResult = await client.mutate({
     mutation: CreateAudioUploadMutation,
     variables: {
-      input: { projectId: placement.projectId, contentType, filename },
+      input: { projectId: placement.projectId, contentType, filename, loopLength: placement.loopLength },
     },
   });
 
   const upload = uploadResult.data?.createAudioUpload;
   if (!upload) throw new Error("Failed to create audio upload");
+
+  const audioId = upload.audio._id;
+  const bytesPromise = file.arrayBuffer();
+  const preloadPromise =
+    options?.engine && !options.engine.hasAudio(audioId)
+      ? bytesPromise.then((data) => options.engine!.loadAudio(audioId, data))
+      : undefined;
 
   const putResponse = await fetch(upload.uploadUrl, {
     method: "PUT",
@@ -67,6 +86,9 @@ export async function uploadAudioAndCreateClip(
         start: placement.start,
         duration: placement.duration,
         audioOffset: placement.audioOffset ?? 0,
+        mode: placement.mode,
+        audioInClips: placement.audioInClips,
+        durationSamples: placement.durationSamples,
       },
     },
     // Append the new clip into the cached `ProjectQuery` so the timeline lanes
@@ -82,12 +104,19 @@ export async function uploadAudioAndCreateClip(
           if (clips.some((existingClip) => existingClip._id === created._id)) {
             return existing;
           }
+          const audios = existing.project.projectData.audios;
+          const createdAudio = created.audio;
+          const nextAudios =
+            createdAudio && !audios.some((audio) => audio._id === createdAudio._id)
+              ? [...audios, createdAudio]
+              : audios;
           return {
             ...existing,
             project: {
               ...existing.project,
               projectData: {
                 ...existing.project.projectData,
+                audios: nextAudios,
                 clips: [...clips, created],
               },
             },
@@ -99,5 +128,14 @@ export async function uploadAudioAndCreateClip(
 
   const clip = clipResult.data?.createClip;
   if (!clip) throw new Error("Failed to create clip");
+
+  if (preloadPromise) {
+    try {
+      await preloadPromise;
+    } catch (err) {
+      console.error("Failed to preload audio locally", audioId, err);
+    }
+  }
+
   return clip;
 }

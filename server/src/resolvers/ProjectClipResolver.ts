@@ -11,10 +11,23 @@ import {
   Root,
 } from "type-graphql";
 import type { ServerContext } from "../context";
+import { AudioInClip } from "../entities/AudioInClip";
 import { ProjectAudio } from "../entities/ProjectAudio";
-import { ProjectClip } from "../entities/ProjectClip";
+import { ClipMode, ProjectClip } from "../entities/ProjectClip";
 import { ProjectData } from "../entities/ProjectData";
 import { refToId } from "../lib/ref";
+
+@InputType()
+export class AudioInClipInput {
+  @Field(() => Int)
+  start!: number;
+
+  @Field(() => Int)
+  duration!: number;
+
+  @Field(() => Int)
+  audioOffset!: number;
+}
 
 @InputType()
 export class CreateClipInput {
@@ -37,9 +50,21 @@ export class CreateClipInput {
   @Field(() => Int)
   duration!: number;
 
+  /** How the clip schedules its underlying audio. Defaults to `FLAT`. */
+  @Field(() => ClipMode, { defaultValue: ClipMode.FLAT })
+  mode!: ClipMode;
+
   /** Offset into the underlying audio to begin at, in samples. Defaults to 0. */
   @Field(() => Int, { defaultValue: 0 })
   audioOffset!: number;
+
+  /** Baked playback events for this clip. */
+  @Field(() => [AudioInClipInput!]!)
+  audioInClips!: AudioInClipInput[];
+
+  /** Recorded audio length in samples (stored on the audio for stacked backfill). */
+  @Field(() => Int, { nullable: true })
+  durationSamples?: number | null;
 }
 
 @InputType()
@@ -64,6 +89,10 @@ export class UpdateClipInput {
   /** New timeline start position, in samples. Omit to leave unchanged. */
   @Field(() => Int, { nullable: true })
   start?: number | null;
+
+  /** New clip length, in samples. Omit to leave unchanged. Clamped to `maxDuration`. */
+  @Field(() => Int, { nullable: true })
+  duration?: number | null;
 
   /** `_id` of the `ProjectTrack` to move the clip onto. Omit to leave unchanged. */
   @Field(() => ID, { nullable: true })
@@ -96,6 +125,9 @@ export class ProjectClipResolver {
       start: input.start,
       duration: input.duration,
       audioOffset: input.audioOffset,
+      mode: input.mode,
+      audioInClips: input.audioInClips,
+      durationSamples: input.durationSamples ?? undefined,
       creatorId,
     });
   }
@@ -116,6 +148,7 @@ export class ProjectClipResolver {
       projectId: input.projectId,
       clipId: input.clipId,
       start: input.start ?? undefined,
+      duration: input.duration ?? undefined,
       track: input.track ?? undefined,
     });
   }
@@ -149,6 +182,19 @@ export class ProjectClipResolver {
       throw new Error(`ProjectAudio not found for clip ${clip._id}`);
     }
     return audio;
+  }
+
+  /**
+   * Dispatched playback events for this clip. Backfills legacy clips that
+   * predate embedded `audioInClips`.
+   */
+  @FieldResolver(() => [AudioInClip!]!)
+  async audioInClips(
+    @Root() clip: ProjectClip,
+    @Ctx() ctx: ServerContext,
+  ): Promise<AudioInClip[]> {
+    const audio = await ctx.services.projectAudios.findById(refToId(clip.audio));
+    return ctx.services.projectClips.resolveAudioInClips(clip, audio);
   }
 }
 

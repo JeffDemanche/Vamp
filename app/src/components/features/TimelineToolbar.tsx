@@ -5,6 +5,7 @@ import {
   useAudioEnginePlaying,
 } from "@/audio/AudioEngineProvider"
 import { Button } from "@/components/primitives/button"
+import { RecordingSettings } from "@/components/features/RecordingSettings"
 import { useRecordingControls } from "@/components/features/RecordingController"
 import { useTimelinePlayback } from "@/state/timeline"
 import { testIds } from "@/testIds"
@@ -21,7 +22,9 @@ import { testIds } from "@/testIds"
  *   (`beginRecording`): it acquires the microphone and starts capturing before
  *   recording state flips on. It is disabled until a track is selected, reflects
  *   blocked mic access, and any permission/capture error is surfaced beside the
- *   toolbar with a retry.
+ *   toolbar with a retry;
+ * - a **recording settings** popover beside the record button for choosing audio
+ *   input and output devices.
  *
  * Rendered inside the editor's jotai `Provider`, `AudioEngineProvider`, and
  * `RecordingController`.
@@ -56,21 +59,25 @@ export function TimelineToolbar() {
         {playing ? "Stop" : "Play"}
       </Button>
 
-      <Button
-        type="button"
-        size="sm"
-        variant={isRecording ? "destructive" : "outline"}
-        aria-label={recordLabel}
-        title={recordLabel}
-        disabled={!canRecord || isRecording}
-        onClick={beginRecording}
-      >
-        <Circle
-          className={isRecording ? "fill-current" : undefined}
-          aria-hidden
-        />
-        Record
-      </Button>
+      <div className="flex items-center gap-0.5">
+        <Button
+          type="button"
+          size="sm"
+          variant={isRecording ? "destructive" : "outline"}
+          aria-label={recordLabel}
+          title={recordLabel}
+          disabled={!canRecord || isRecording}
+          onClick={beginRecording}
+        >
+          <Circle
+            className={isRecording ? "fill-current" : undefined}
+            aria-hidden
+          />
+          Record
+        </Button>
+
+        <RecordingSettings disabled={isRecording} />
+      </div>
 
       <Button
         type="button"

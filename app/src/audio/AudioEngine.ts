@@ -1,3 +1,15 @@
+import {
+  deriveLiveRecordingAudioInClips,
+  flattenAudioInClips,
+  resolveScheduledEvent,
+} from "@vamp/shared";
+export { stackedLayerCount } from "@vamp/shared";
+import {
+  finalizeWrappedRecordingPcm,
+  remapFirstPassToLoopRegion,
+} from "@/audio/recordingClipLayout";
+import { encodeMonoWav } from "@/audio/wavEncode";
+import { applyAudioOutputDevice } from "@/audio/audioDevices";
 import { DEFAULT_SAMPLE_RATE } from "@/state/timeline";
 
 /**
@@ -35,6 +47,9 @@ import { DEFAULT_SAMPLE_RATE } from "@/state/timeline";
 /** Identifier for an audio file held in the engine's in-memory store. */
 export type AudioId = string;
 
+/** In-memory audio id for the live recording buffer during capture. */
+export const LIVE_RECORDING_AUDIO_ID = "__recording__";
+
 /**
  * A clip as the audio engine needs to see it. Upstream code maps a project's
  * `ProjectClip`s (plus their audio association) into this shape. All times are
@@ -45,15 +60,15 @@ export type AudioEngineClip = {
   id: string;
   /** Which in-memory audio file this clip plays. */
   audioId: AudioId;
-  /** Timeline sample at which the clip begins. */
+  /** Clip trim envelope — intersected with each {@link AudioInClipSpec}. */
   start: number;
-  /** Clip length, in samples. */
   duration: number;
-  /**
-   * Sample offset into the source audio file at which the clip's audio begins.
-   * Defaults to `0` (play the file from its start).
-   */
-  offset?: number;
+  /** Baked dispatched playback events for this clip. */
+  audioInClips: Array<{
+    start: number;
+    duration: number;
+    audioOffset: number;
+  }>;
 };
 
 /**
@@ -109,6 +124,7 @@ export type PlayingListener = (playing: boolean) => void;
  * — e.g. to draw its waveform once the bytes are available.
  */
 export type AudioStoreListener = () => void;
+type RecordingBufferListener = () => void;
 
 /** Creates the `AudioContext` the engine drives. Injectable for testing. */
 export type AudioContextFactory = () => AudioContext;
@@ -140,8 +156,22 @@ export type RecordingResult = {
   contentType: string;
   /** Timeline sample the first recorded frame corresponds to. */
   startSample: number;
+  /** Timeline sample the playhead occupied when recording stopped. */
+  stopSample: number;
+  /** Playback-range start (samples) when recording began — the loop anchor. */
+  playStart: number;
   /** Recording length, in timeline samples. */
   durationSamples: number;
+  /**
+   * Loop length (samples) active when recording began, if the transport was
+   * looping. Omitted for non-looped takes.
+   */
+  loopLength?: number;
+  /**
+   * Whether playback looped at least once during capture. When true the take
+   * anchors at `playStart` and its audio is remapped into loop coordinates.
+   */
+  crossedLoopBoundary: boolean;
 };
 
 export type AudioEngineOptions = {
@@ -178,12 +208,19 @@ const defaultContextFactory: AudioContextFactory = () => {
   return new Ctor();
 };
 
-const defaultMediaStreamProvider: MediaStreamProvider = () => {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("Microphone capture is not supported in this browser.");
-  }
-  return navigator.mediaDevices.getUserMedia({ audio: true });
-};
+function createMediaStreamProvider(
+  getInputDeviceId: () => string | null,
+): MediaStreamProvider {
+  return () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Microphone capture is not supported in this browser.");
+    }
+    const deviceId = getInputDeviceId();
+    return navigator.mediaDevices.getUserMedia({
+      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+    });
+  };
+}
 
 const defaultMediaRecorderFactory: MediaRecorderFactory = (stream, options) =>
   new MediaRecorder(stream, options);
@@ -225,8 +262,15 @@ export class AudioEngine {
   /** Playback events derived from the current clips. */
   private events: AudioEvent[] = [];
 
+  /** Live recording events scheduled after the first loop wrap during capture. */
+  private liveRecordingEvents: AudioEvent[] = [];
+
   private context: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  /** Preferred microphone device id, or `null` for the system default. */
+  private inputDeviceId: string | null = null;
+  /** Preferred playback device id, or `null` for the system default. */
+  private outputDeviceId: string | null = null;
 
   /** Currently sounding source nodes, tracked so they can be stopped. */
   private activeSources: AudioBufferSourceNode[] = [];
@@ -259,19 +303,77 @@ export class AudioEngine {
   private mediaRecorder: MediaRecorder | null = null;
   /** Microphone stream backing the active recorder; tracks are stopped on cleanup. */
   private recordingStream: MediaStream | null = null;
+  /** Pre-acquired mic stream for the selected input, ready for the next take. */
+  private preparedStream: MediaStream | null = null;
+  /** `inputDeviceId` the prepared stream was opened for (`undefined` = none). */
+  private preparedStreamDeviceId: string | null | undefined = undefined;
+  /** In-flight {@link prepareRecording} call, deduped for concurrent warmers. */
+  private prepareRecordingPromise: Promise<void> | null = null;
   /** Captured data chunks, assembled into the result blob on stop. */
   private recordedChunks: Blob[] = [];
   /** Audio-clock time (seconds) when capture began — the anchor for duration. */
   private recordStartContextTime = 0;
   /** Timeline sample the first recorded frame corresponds to. */
   private recordStartSample = 0;
+  /** Playback-range start when recording began — loop anchor for wrapped takes. */
+  private recordPlayStart = 0;
+  /** Loop length (samples) captured when recording began, if looping. */
+  private recordLoopLength: number | undefined;
+  /**
+   * Latches true the first time playback loops during an active looped recording.
+   * Stays set until capture ends so clip placement does not revert when the
+   * playhead passes the recording's initial `startSample` again.
+   */
+  private recordCrossedLoop = false;
+
+  /** Taps the mic stream for live waveform preview while recording. */
+  private recordingSource: MediaStreamAudioSourceNode | null = null;
+  private recordingProcessor: ScriptProcessorNode | null = null;
+  private recordingSilentGain: GainNode | null = null;
+  /** Mono PCM accumulated from the live mic tap, at the context sample rate. */
+  private recordingChannelData: Float32Array[] = [];
+  /** Cached resampled buffer returned by {@link getRecordingBuffer}. */
+  private recordingBufferCache: AudioBuffer | undefined;
+  private recordingBufferCacheSourceLength = 0;
+  private recordingBufferCacheSampleRate = 0;
+  private recordingBufferCacheWrapped = false;
+  private readonly recordingBufferListeners = new Set<RecordingBufferListener>();
+  private recordingBufferNotifyPending = false;
 
   constructor(options: AudioEngineOptions = {}) {
     this.contextFactory = options.contextFactory ?? defaultContextFactory;
     this.mediaStreamProvider =
-      options.mediaStreamProvider ?? defaultMediaStreamProvider;
+      options.mediaStreamProvider ??
+      createMediaStreamProvider(() => this.inputDeviceId);
     this.mediaRecorderFactory =
       options.mediaRecorderFactory ?? defaultMediaRecorderFactory;
+  }
+
+  /** The selected microphone device id, or `null` for the system default. */
+  getInputDeviceId(): string | null {
+    return this.inputDeviceId;
+  }
+
+  /** Select which microphone to capture from on the next recording. */
+  setInputDeviceId(deviceId: string | null): void {
+    if (deviceId !== this.inputDeviceId) {
+      this.releasePreparedStream();
+    }
+    this.inputDeviceId = deviceId;
+  }
+
+  /** The selected playback device id, or `null` for the system default. */
+  getOutputDeviceId(): string | null {
+    return this.outputDeviceId;
+  }
+
+  /**
+   * Route playback through the given output device. No-op when the browser does
+   * not support `AudioContext.setSinkId`.
+   */
+  setOutputDeviceId(deviceId: string | null): void {
+    this.outputDeviceId = deviceId;
+    void this.applyOutputDevice();
   }
 
   // --- Audio file store ---------------------------------------------------
@@ -331,7 +433,8 @@ export class AudioEngine {
    */
   update(state: AudioEngineState): void {
     this.state = state;
-    this.events = deriveEvents(state.clips);
+    this.events = flattenAudioInClips(state.clips);
+    this.refreshLiveRecordingEvents();
 
     if (this.playing) {
       const resumeFrom = this.timecode;
@@ -373,6 +476,43 @@ export class AudioEngine {
   // --- Recording ----------------------------------------------------------
 
   /**
+   * Pre-acquire the microphone for the currently selected input device so the
+   * next {@link startRecording} can begin capture without waiting on
+   * `getUserMedia`. No-op while a take is active or a stream is already
+   * prepared for the current device. Failures are swallowed — the next record
+   * attempt will try again (and can surface an error to the user).
+   */
+  async prepareRecording(): Promise<void> {
+    if (this.mediaRecorder) return;
+    const deviceId = this.inputDeviceId;
+    if (this.preparedStream && this.preparedStreamDeviceId === deviceId) return;
+
+    if (this.prepareRecordingPromise) {
+      await this.prepareRecordingPromise;
+      return;
+    }
+
+    this.prepareRecordingPromise = (async () => {
+      this.releasePreparedStream();
+      try {
+        const stream = await this.mediaStreamProvider();
+        if (deviceId !== this.inputDeviceId) {
+          for (const track of stream.getTracks()) track.stop();
+          return;
+        }
+        this.preparedStream = stream;
+        this.preparedStreamDeviceId = deviceId;
+      } catch {
+        this.releasePreparedStream();
+      } finally {
+        this.prepareRecordingPromise = null;
+      }
+    })();
+
+    await this.prepareRecordingPromise;
+  }
+
+  /**
    * Acquire the microphone and begin capturing a take. Resolves only once the
    * recorder has actually started, with the timeline `startSample` the first
    * captured frame maps to — so callers can flip UI/record state *after* audio
@@ -391,13 +531,17 @@ export class AudioEngine {
    */
   async startRecording(
     options: { startPlayback?: boolean } = {},
-  ): Promise<{ startSample: number }> {
+  ): Promise<{ startSample: number; loopLength?: number }> {
     const { startPlayback = false } = options;
     if (this.mediaRecorder) {
       throw new Error("A recording is already in progress.");
     }
     const ctx = this.ensureContext();
-    const stream = await this.mediaStreamProvider();
+    let stream = this.takePreparedStream();
+    if (!stream) {
+      this.releasePreparedStream();
+      stream = await this.mediaStreamProvider();
+    }
     this.recordingStream = stream;
 
     const mimeType = pickRecordingMimeType();
@@ -417,8 +561,9 @@ export class AudioEngine {
     recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) this.recordedChunks.push(event.data);
     };
+    this.setupRecordingTap(ctx, stream);
 
-    return new Promise<{ startSample: number }>((resolve, reject) => {
+    return new Promise<{ startSample: number; loopLength?: number }>((resolve, reject) => {
       recorder.onstart = () => {
         // Start the transport in the very same instant capture begins (no-op if
         // already playing) so playback and the recording anchor to one audio
@@ -427,7 +572,15 @@ export class AudioEngine {
         // Anchor to the audio clock the instant capture truly begins.
         this.recordStartContextTime = ctx.currentTime;
         this.recordStartSample = this.timecode;
-        resolve({ startSample: Math.round(this.recordStartSample) });
+        const { loop, playStart, playEnd } = this.state;
+        this.recordPlayStart = playStart;
+        this.recordCrossedLoop = false;
+        this.recordLoopLength =
+          loop && playEnd > playStart ? playEnd - playStart : undefined;
+        resolve({
+          startSample: Math.round(this.recordStartSample),
+          loopLength: this.recordLoopLength,
+        });
       };
       recorder.onerror = (event) => {
         this.cleanupRecording();
@@ -461,14 +614,47 @@ export class AudioEngine {
     const elapsedSeconds = Math.max(0, ctx.currentTime - this.recordStartContextTime);
     const durationSamples = Math.round(elapsedSeconds * this.state.sampleRate);
     const startSample = Math.round(this.recordStartSample);
+    const stopSample = Math.round(this.timecode);
+    const playStart = this.recordPlayStart;
+    const loopLength = this.recordLoopLength;
+    const crossedLoopBoundary =
+      loopLength !== undefined && this.recordCrossedLoop;
 
     return new Promise<RecordingResult>((resolve, reject) => {
       recorder.onstop = () => {
-        const contentType =
-          recorder.mimeType || this.recordedChunks[0]?.type || "audio/webm";
-        const blob = new Blob(this.recordedChunks, { type: contentType });
+        let blob: Blob;
+        let contentType: string;
+        if (crossedLoopBoundary && loopLength !== undefined) {
+          const pcm = this.recordingPcmAtTimelineRate();
+          if (pcm) {
+            const remapped = finalizeWrappedRecordingPcm(pcm, {
+              startSample,
+              playStart,
+              loopLength,
+            });
+            blob = encodeMonoWav(remapped, this.state.sampleRate);
+            contentType = "audio/wav";
+          } else {
+            contentType =
+              recorder.mimeType || this.recordedChunks[0]?.type || "audio/webm";
+            blob = new Blob(this.recordedChunks, { type: contentType });
+          }
+        } else {
+          contentType =
+            recorder.mimeType || this.recordedChunks[0]?.type || "audio/webm";
+          blob = new Blob(this.recordedChunks, { type: contentType });
+        }
         this.cleanupRecording();
-        resolve({ blob, contentType, startSample, durationSamples });
+        resolve({
+          blob,
+          contentType,
+          startSample,
+          stopSample,
+          playStart,
+          durationSamples,
+          loopLength,
+          crossedLoopBoundary,
+        });
       };
       recorder.onerror = (event) => {
         this.cleanupRecording();
@@ -488,14 +674,147 @@ export class AudioEngine {
     return this.mediaRecorder !== null;
   }
 
+  /**
+   * How much audio has been captured so far during an active recording, in
+   * timeline samples. Measured on the audio clock from capture start (same
+   * basis as {@link stopRecording}), so it keeps increasing when the transport
+   * loops and the playhead wraps — unlike `timecode - startSample`.
+   */
+  getRecordingCapturedSamples(): number {
+    if (!this.mediaRecorder || !this.context) return 0;
+    const elapsedSeconds = Math.max(
+      0,
+      this.context.currentTime - this.recordStartContextTime,
+    );
+    return Math.round(elapsedSeconds * this.state.sampleRate);
+  }
+
+  /** Whether playback has looped at least once during the active recording. */
+  hasRecordingCrossedLoop(): boolean {
+    return this.recordCrossedLoop;
+  }
+
+  /**
+   * The PCM captured so far during an active recording, resampled to the
+   * timeline `sampleRate`, or `undefined` when not recording / before the first
+   * frame lands. Used by the live `RecordingClip` waveform.
+   */
+  getRecordingBuffer(): AudioBuffer | undefined {
+    const ctx = this.context;
+    if (!ctx || !this.mediaRecorder) return undefined;
+    const pcm = this.recordingPcmAtTimelineRate();
+    if (!pcm || pcm.length === 0) return undefined;
+
+    const timelineRate = this.state.sampleRate;
+    const loopLength = this.recordLoopLength;
+    const crossedLoopBoundary =
+      loopLength !== undefined && this.recordCrossedLoop;
+
+    let samples = pcm;
+    if (crossedLoopBoundary && loopLength !== undefined) {
+      const firstPass = remapFirstPassToLoopRegion(pcm, {
+        startSample: Math.round(this.recordStartSample),
+        playStart: this.recordPlayStart,
+        loopLength,
+      });
+      const rest = pcm.subarray(loopLength);
+      if (rest.length > 0) {
+        samples = new Float32Array(firstPass.length + rest.length);
+        samples.set(firstPass);
+        samples.set(rest, firstPass.length);
+      } else {
+        samples = firstPass;
+      }
+    }
+
+    if (
+      this.recordingBufferCache &&
+      this.recordingBufferCacheSourceLength === pcm.length &&
+      this.recordingBufferCacheSampleRate === timelineRate &&
+      this.recordingBufferCacheWrapped === crossedLoopBoundary
+    ) {
+      return this.recordingBufferCache;
+    }
+
+    const buffer = ctx.createBuffer(1, samples.length, timelineRate);
+    buffer.copyToChannel(new Float32Array(samples), 0);
+
+    this.recordingBufferCache = buffer;
+    this.recordingBufferCacheSourceLength = pcm.length;
+    this.recordingBufferCacheSampleRate = timelineRate;
+    this.recordingBufferCacheWrapped = crossedLoopBoundary;
+    return buffer;
+  }
+
+  /**
+   * Subscribe to live recording-buffer updates (PCM appended from the mic tap).
+   * Returns an unsubscribe fn.
+   */
+  subscribeRecordingBuffer(listener: RecordingBufferListener): () => void {
+    this.recordingBufferListeners.add(listener);
+    return () => this.recordingBufferListeners.delete(listener);
+  }
+
   /** Stop the recorder (if any) and release the microphone stream. */
   private cleanupRecording(): void {
+    this.teardownRecordingTap();
+    this.liveRecordingEvents = [];
+    this.audioBuffers.delete(LIVE_RECORDING_AUDIO_ID);
+    this.notifyAudioStore();
     if (this.recordingStream) {
       for (const track of this.recordingStream.getTracks()) track.stop();
       this.recordingStream = null;
     }
     this.mediaRecorder = null;
     this.recordedChunks = [];
+    this.recordLoopLength = undefined;
+    this.recordPlayStart = 0;
+    this.recordCrossedLoop = false;
+  }
+
+  private takePreparedStream(): MediaStream | null {
+    const deviceId = this.inputDeviceId;
+    if (!this.preparedStream || this.preparedStreamDeviceId !== deviceId) {
+      return null;
+    }
+    const stream = this.preparedStream;
+    this.preparedStream = null;
+    this.preparedStreamDeviceId = undefined;
+    return stream;
+  }
+
+  private releasePreparedStream(): void {
+    if (this.preparedStream) {
+      for (const track of this.preparedStream.getTracks()) track.stop();
+      this.preparedStream = null;
+    }
+    this.preparedStreamDeviceId = undefined;
+  }
+
+  /** Mono PCM captured so far, resampled to the timeline sample rate. */
+  private recordingPcmAtTimelineRate(): Float32Array | undefined {
+    const ctx = this.context;
+    const src = this.recordingChannelData[0];
+    if (!ctx || !src || src.length === 0) return undefined;
+
+    const timelineRate = this.state.sampleRate;
+    const contextRate = ctx.sampleRate;
+    if (timelineRate === contextRate) return src;
+
+    const outLength = Math.max(
+      1,
+      Math.round((src.length * timelineRate) / contextRate),
+    );
+    const out = new Float32Array(outLength);
+    for (let i = 0; i < outLength; i++) {
+      const srcPos = (i * contextRate) / timelineRate;
+      const idx = Math.floor(srcPos);
+      const frac = srcPos - idx;
+      const a = src[idx] ?? 0;
+      const b = src[idx + 1] ?? a;
+      out[i] = a + frac * (b - a);
+    }
+    return out;
   }
 
   // --- Reported state -----------------------------------------------------
@@ -537,11 +856,13 @@ export class AudioEngine {
   dispose(): void {
     this.teardownPlayback();
     this.cleanupRecording();
+    this.releasePreparedStream();
     this.playing = false;
     this.audioBuffers.clear();
     this.notifyAudioStore();
     this.listeners.clear();
     this.audioStoreListeners.clear();
+    this.recordingBufferListeners.clear();
     if (this.context) {
       void this.context.close();
       this.context = null;
@@ -556,11 +877,18 @@ export class AudioEngine {
       this.context = this.contextFactory();
       this.masterGain = this.context.createGain();
       this.masterGain.connect(this.context.destination);
+      void this.applyOutputDevice();
     }
     if (this.context.state === "suspended") {
       void this.context.resume();
     }
     return this.context;
+  }
+
+  private async applyOutputDevice(): Promise<void> {
+    const ctx = this.context;
+    if (!ctx) return;
+    await applyAudioOutputDevice(ctx, this.outputDeviceId);
   }
 
   /**
@@ -580,7 +908,7 @@ export class AudioEngine {
     this.contextStartTime = ctx.currentTime;
     this.playheadStartSample = fromSample;
 
-    for (const event of this.events) {
+    for (const event of this.scheduledEvents()) {
       const buffer = this.audioBuffers.get(event.audioId);
       if (!buffer) continue;
 
@@ -615,6 +943,12 @@ export class AudioEngine {
   private handleEnded(): void {
     const { loop, playStart } = this.state;
     if (loop) {
+      if (this.mediaRecorder && this.recordLoopLength !== undefined) {
+        this.recordCrossedLoop = true;
+        this.recordingBufferCache = undefined;
+        this.notifyRecordingBuffer();
+        this.refreshLiveRecordingEvents();
+      }
       this.teardownPlayback();
       this.scheduleFrom(playStart);
       return;
@@ -642,6 +976,61 @@ export class AudioEngine {
     this.activeSources = [];
   }
 
+  private scheduledEvents(): AudioEvent[] {
+    if (this.liveRecordingEvents.length === 0) return this.events;
+    return [...this.events, ...this.liveRecordingEvents];
+  }
+
+  /**
+   * Derive and cache live-recording playback events after the first loop wrap,
+   * and sync the in-progress PCM buffer into the audio store for scheduling.
+   */
+  private refreshLiveRecordingEvents(): void {
+    if (!this.mediaRecorder || !this.recordCrossedLoop) {
+      this.liveRecordingEvents = [];
+      return;
+    }
+
+    const capturedSamples = this.getRecordingCapturedSamples();
+    const specs = deriveLiveRecordingAudioInClips({
+      startSample: Math.round(this.recordStartSample),
+      capturedSamples,
+      loopLength: this.recordLoopLength,
+      playStart: this.recordPlayStart,
+      crossedLoopBoundary: true,
+    });
+
+    if (!specs || specs.length === 0) {
+      this.liveRecordingEvents = [];
+      return;
+    }
+
+    const buffer = this.getRecordingBuffer();
+    if (buffer) {
+      this.audioBuffers.set(LIVE_RECORDING_AUDIO_ID, buffer);
+      this.notifyAudioStore();
+    }
+
+    const envelope = {
+      start: specs[0]!.start,
+      duration: specs[0]!.duration,
+    };
+
+    this.liveRecordingEvents = specs.flatMap((aic) => {
+      const resolved = resolveScheduledEvent(aic, envelope);
+      if (!resolved) return [];
+      return [
+        {
+          clipId: LIVE_RECORDING_AUDIO_ID,
+          audioId: LIVE_RECORDING_AUDIO_ID,
+          startSample: resolved.startSample,
+          endSample: resolved.endSample,
+          bufferOffset: resolved.bufferOffset,
+        },
+      ];
+    });
+  }
+
   private notify(): void {
     for (const listener of this.listeners) listener(this.playing);
   }
@@ -649,20 +1038,63 @@ export class AudioEngine {
   private notifyAudioStore(): void {
     for (const listener of this.audioStoreListeners) listener();
   }
+
+  private setupRecordingTap(ctx: AudioContext, stream: MediaStream): void {
+    const source = ctx.createMediaStreamSource(stream);
+    const processor = ctx.createScriptProcessor(4096, 1, 1);
+    const silent = ctx.createGain();
+    silent.gain.value = 0;
+    source.connect(processor);
+    processor.connect(silent);
+    silent.connect(ctx.destination);
+
+    this.recordingSource = source;
+    this.recordingProcessor = processor;
+    this.recordingSilentGain = silent;
+    this.recordingChannelData = [new Float32Array(0)];
+
+    processor.onaudioprocess = (event) => {
+      if (!this.mediaRecorder) return;
+      this.appendRecordingSamples(event.inputBuffer.getChannelData(0));
+    };
+  }
+
+  private teardownRecordingTap(): void {
+    this.recordingProcessor?.disconnect();
+    this.recordingSource?.disconnect();
+    this.recordingSilentGain?.disconnect();
+    this.recordingProcessor = null;
+    this.recordingSource = null;
+    this.recordingSilentGain = null;
+    this.recordingChannelData = [];
+    this.recordingBufferCache = undefined;
+    this.recordingBufferCacheSourceLength = 0;
+    this.recordingBufferCacheSampleRate = 0;
+    this.recordingBufferCacheWrapped = false;
+    this.notifyRecordingBuffer();
+  }
+
+  private appendRecordingSamples(input: Float32Array): void {
+    const channel = this.recordingChannelData[0] ?? new Float32Array(0);
+    const next = new Float32Array(channel.length + input.length);
+    next.set(channel);
+    next.set(input, channel.length);
+    this.recordingChannelData[0] = next;
+    this.notifyRecordingBuffer();
+  }
+
+  private notifyRecordingBuffer(): void {
+    if (this.recordingBufferNotifyPending) return;
+    this.recordingBufferNotifyPending = true;
+    requestAnimationFrame(() => {
+      this.recordingBufferNotifyPending = false;
+      for (const listener of this.recordingBufferListeners) listener();
+    });
+  }
 }
 
 /** Extract a meaningful error from a `MediaRecorder` `error` event. */
 function recorderError(event: Event): Error {
   const err = (event as unknown as { error?: DOMException }).error;
   return err ?? new Error("Recording failed.");
-}
-
-function deriveEvents(clips: AudioEngineClip[]): AudioEvent[] {
-  return clips.map((clip) => ({
-    clipId: clip.id,
-    audioId: clip.audioId,
-    startSample: clip.start,
-    endSample: clip.start + clip.duration,
-    bufferOffset: clip.offset ?? 0,
-  }));
 }

@@ -15,7 +15,8 @@
     "types": ["node", "vite/client", "jest", "@testing-library/jest-dom"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@vamp/shared": ["../shared/src/index.ts"]
     }
   },
   "include": [

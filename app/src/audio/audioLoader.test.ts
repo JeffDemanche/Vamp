@@ -3,7 +3,7 @@ import {
   ensureAudioLoaded,
   resetAudioLoaderForTests,
 } from "./audioLoader";
-import { filterReadyAudios, toAudioEngineClip } from "./clipMapping";
+import { filterReadyAudios, toAudioEngineClip, collectProjectAudios } from "./clipMapping";
 
 describe("clipMapping", () => {
   const readyAudio = {
@@ -20,13 +20,62 @@ describe("clipMapping", () => {
         duration: 500,
         audioOffset: 50,
         audio: readyAudio,
+        audioInClips: [{ start: 100, duration: 500, audioOffset: 50 }],
       }),
     ).toEqual({
       id: "clip-1",
       audioId: "audio-1",
       start: 100,
       duration: 500,
-      offset: 50,
+      audioInClips: [{ start: 100, duration: 500, audioOffset: 50 }],
+    });
+  });
+
+  it("passes through baked STACKED audioInClips", () => {
+    expect(
+      toAudioEngineClip({
+        _id: "clip-1",
+        start: 0,
+        duration: 1000,
+        audioOffset: 0,
+        mode: "STACKED",
+        audioInClips: [
+          { start: 0, duration: 1000, audioOffset: 0 },
+          { start: 0, duration: 1000, audioOffset: 1000 },
+        ],
+        audio: { ...readyAudio, loopLength: 1000 },
+      }),
+    ).toEqual({
+      id: "clip-1",
+      audioId: "audio-1",
+      start: 0,
+      duration: 1000,
+      audioInClips: [
+        { start: 0, duration: 1000, audioOffset: 0 },
+        { start: 0, duration: 1000, audioOffset: 1000 },
+      ],
+    });
+  });
+
+  it("backfills audioInClips for legacy clips", () => {
+    expect(
+      toAudioEngineClip({
+        _id: "clip-1",
+        start: 0,
+        duration: 1000,
+        audioOffset: 0,
+        mode: "STACKED",
+        audio: { ...readyAudio, loopLength: 1000, durationSamples: 2000 },
+      }),
+    ).toEqual({
+      id: "clip-1",
+      audioId: "audio-1",
+      start: 0,
+      duration: 1000,
+      audioInClips: [
+        { start: 0, duration: 1000, audioOffset: 0 },
+        { start: 0, duration: 1000, audioOffset: 1000 },
+      ],
     });
   });
 
@@ -68,6 +117,42 @@ describe("clipMapping", () => {
       readyAudio,
       audio2,
     ]);
+  });
+
+  it("merges library audios with clip-referenced audios", () => {
+    const libraryAudio = {
+      _id: "audio-lib",
+      uploadStatus: "READY",
+      downloadUrl: "https://example.com/lib",
+    };
+    const clipOnlyAudio = {
+      _id: "audio-clip",
+      uploadStatus: "READY",
+      downloadUrl: "https://example.com/clip",
+    };
+    const pendingClipAudio = {
+      _id: "audio-pending",
+      uploadStatus: "PENDING",
+      downloadUrl: null,
+    };
+    expect(
+      collectProjectAudios([libraryAudio], [
+        {
+          _id: "clip-1",
+          start: 0,
+          duration: 100,
+          audioOffset: 0,
+          audio: clipOnlyAudio,
+        },
+        {
+          _id: "clip-2",
+          start: 100,
+          duration: 50,
+          audioOffset: 0,
+          audio: pendingClipAudio,
+        },
+      ]),
+    ).toEqual([libraryAudio, clipOnlyAudio]);
   });
 });
 

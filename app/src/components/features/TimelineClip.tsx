@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useMutation } from "@apollo/client/react"
+import { RectangleHorizontal, SquareStack } from "lucide-react"
 
 import { Clip } from "@/components/composites/clip"
 import { SwimlaneItem } from "@/components/composites/swimlane"
@@ -17,13 +18,52 @@ export type TimelineClipData = {
   duration: number
   /** Sample offset into the source audio where the clip's window begins. */
   audioOffset: number
+  /** How the clip schedules its audio (`FLAT` or `STACKED`). */
+  mode: string
   /** `_id` of the `ProjectTrack` the clip currently lives on. */
   track: string
+  audioInClips: readonly {
+    start: number
+    duration: number
+    audioOffset: number
+  }[]
   audio: {
     /** `_id` of the source `ProjectAudio`, used to fetch the decoded buffer for its waveform. */
     _id: string
     filename?: string | null
+    /** Loop length (samples) for stacked scheduling; `null` for flat takes. */
+    loopLength?: number | null
   }
+}
+
+/**
+ * A subtle icon badge for the clip's **Clip mode**, shown in the clip header.
+ * Flat clips get a single-rectangle glyph; stacked clips get a stack glyph plus
+ * the number of baked {@link AudioInClip}s (dispatched playback events).
+ */
+export function ClipModeBadge({ clip }: { clip: TimelineClipData }) {
+  const isStacked = clip.mode === "STACKED"
+
+  if (!isStacked) {
+    return (
+      <span className="flex items-center opacity-50" title="Flat clip" aria-label="Flat clip">
+        <RectangleHorizontal className="size-3" aria-hidden />
+      </span>
+    )
+  }
+
+  const count = clip.audioInClips.length
+
+  return (
+    <span
+      className="flex items-center gap-0.5 text-[10px] leading-none tabular-nums opacity-60"
+      title={count > 0 ? `Stacked clip · ${count} layers` : "Stacked clip"}
+      aria-label={count > 0 ? `Stacked clip, ${count} layers` : "Stacked clip"}
+    >
+      <SquareStack className="size-3" aria-hidden />
+      {count > 0 && count}
+    </span>
+  )
 }
 
 /**
@@ -105,12 +145,16 @@ export function TimelineClip({
   // True between a real drag ending and its trailing native `click`, so that
   // click is swallowed instead of toggling the selection of a clip we moved.
   const suppressClick = React.useRef(false)
+  // Bumped on each drag start so a stale `updateClip` finally handler from an
+  // earlier gesture cannot clear preview state for a newer drag.
+  const commitGenerationRef = React.useRef(0)
 
   const { dragHandlers } = useTimelineDrag({
     clientXToSample: coords.clientXToSample,
     // Keep the clip's native click so a press without movement still selects it.
     preventDefault: false,
     onDragStart: ({ sample }, event) => {
+      commitGenerationRef.current += 1
       gesture.current = {
         downClientX: event.clientX,
         downClientY: event.clientY,
@@ -139,14 +183,37 @@ export function TimelineClip({
       g.nextTrack = nextTrack
       setClipDrag({ clipId: clip._id, start: nextStart, trackId: nextTrack })
     },
-    onDragEnd: () => {
+    onDragEnd: ({ sample }, event) => {
       const g = gesture.current
       gesture.current = null
       const clearPreview = () => {
         setDragging(false)
         setClipDrag(null)
       }
-      if (!g || !g.moved) {
+      if (!g) {
+        clearPreview()
+        return
+      }
+
+      // Fast flicks may release before any pointer-move crosses the threshold,
+      // or the last move may not reflect the release point — finalize here.
+      if (!g.moved) {
+        const dx = event.clientX - g.downClientX
+        const dy = event.clientY - g.downClientY
+        if (Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
+          g.moved = true
+        }
+      }
+      if (g.moved) {
+        setDragging(true)
+        const nextStart = Math.round(g.originStart + (sample - g.downSample))
+        const nextTrack = trackIdAtClientY(event.clientY) ?? g.originTrack
+        g.nextStart = nextStart
+        g.nextTrack = nextTrack
+        setClipDrag({ clipId: clip._id, start: nextStart, trackId: nextTrack })
+      }
+
+      if (!g.moved) {
         clearPreview()
         return
       }
@@ -158,6 +225,7 @@ export function TimelineClip({
         clearPreview()
         return
       }
+      const commitGeneration = commitGenerationRef.current
       // Hold the preview (overlay + dimmed source) until the server confirms so
       // the clip doesn't flash back to its old spot during the round-trip.
       void updateClip({
@@ -169,7 +237,10 @@ export function TimelineClip({
             track: g.nextTrack,
           },
         },
-      }).finally(clearPreview)
+      }).finally(() => {
+        if (commitGenerationRef.current !== commitGeneration) return
+        clearPreview()
+      })
     },
   })
 
@@ -178,6 +249,7 @@ export function TimelineClip({
       <Clip
         variant="standard"
         label={clip.audio.filename ?? "Clip"}
+        badge={<ClipModeBadge clip={clip} />}
         selected={selected}
         // Hide the source clip while dragging; the `TrackLanes` overlay draws
         // the moving copy (possibly on another lane).
@@ -193,13 +265,15 @@ export function TimelineClip({
         onPointerMove={dragHandlers.onPointerMove}
         onPointerUp={dragHandlers.onPointerUp}
         onPointerCancel={dragHandlers.onPointerCancel}
+        onLostPointerCapture={dragHandlers.onLostPointerCapture}
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
       >
         <ClipWaveform
           audioId={clip.audio._id}
-          audioOffset={clip.audioOffset}
-          duration={clip.duration}
+          clipStart={clip.start}
+          clipDuration={clip.duration}
+          audioInClips={clip.audioInClips}
           selected={selected}
           hovered={hovered}
         />
