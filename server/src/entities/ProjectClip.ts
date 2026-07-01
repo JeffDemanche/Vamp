@@ -1,5 +1,6 @@
-import { prop, type Ref } from "@typegoose/typegoose";
+import { prop, PropType, type Ref } from "@typegoose/typegoose";
 import { Field, ID, Int, ObjectType, registerEnumType } from "type-graphql";
+import { AudioInClip } from "./AudioInClip";
 import { ProjectTrack } from "./ProjectTrack";
 // `ProjectClip` is embedded on `ProjectData`, which `ProjectAudio` transitively
 // imports — so import the type only and reference the model by name in `ref` to
@@ -75,6 +76,14 @@ export class ProjectClip {
   @Field(() => Int)
   @prop({ required: true, default: 0 })
   audioOffset!: number;
+
+  /**
+   * The dispatched playback events for this clip — one per audio layer/pass.
+   * Baked at creation; intrinsic durations may extend past a trimmed clip envelope.
+   */
+  @Field(() => [AudioInClip!]!)
+  @prop({ type: () => AudioInClip, default: [] }, PropType.ARRAY)
+  audioInClips!: AudioInClip[];
 
   @Field(() => ID)
   @prop({ required: true })

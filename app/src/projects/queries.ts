@@ -73,6 +73,12 @@ export const ProjectQuery = graphql(`
           mode
           audioOffset
           track
+          audioInClips {
+            _id
+            start
+            duration
+            audioOffset
+          }
           audio {
             _id
             filename
@@ -210,6 +216,12 @@ export const CreateClipMutation = graphql(`
       mode
       audioOffset
       track
+      audioInClips {
+        _id
+        start
+        duration
+        audioOffset
+      }
       audio {
         _id
         filename
@@ -238,6 +250,12 @@ export const UpdateClipMutation = graphql(`
       mode
       audioOffset
       track
+      audioInClips {
+        _id
+        start
+        duration
+        audioOffset
+      }
       audio {
         _id
         filename
@@ -268,6 +286,12 @@ export const ArchiveClipsMutation = graphql(`
         mode
         audioOffset
         track
+        audioInClips {
+          _id
+          start
+          duration
+          audioOffset
+        }
         audio {
           _id
           filename

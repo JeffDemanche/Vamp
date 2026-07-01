@@ -123,4 +123,14 @@ export class ProjectAudioService {
     }
     return this.storage.createDownloadUrl(audio.key);
   }
+
+  /** Store the decoded recording length in timeline samples. */
+  async setDurationSamples(
+    audioId: string,
+    durationSamples: number,
+  ): Promise<ProjectAudio> {
+    const updated = await this.audios.setDurationSamples(audioId, durationSamples);
+    if (!updated) throw new Error(`ProjectAudio not found: ${audioId}`);
+    return updated;
+  }
 }

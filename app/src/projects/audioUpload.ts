@@ -1,4 +1,5 @@
 import type { ApolloClient } from "@apollo/client";
+import { deriveAudioInClips, type AudioInClipSpec } from "@vamp/shared";
 
 import type { AudioEngine } from "@/audio/AudioEngine";
 import {
@@ -22,6 +23,10 @@ export interface NewClipPlacement {
   mode?: "FLAT" | "STACKED";
   /** Loop length (samples) for stacked recordings. Stored on the audio record. */
   loopLength?: number;
+  /** Baked playback events for this clip. */
+  audioInClips: AudioInClipSpec[];
+  /** Recorded audio length in samples (stored on the audio for stacked backfill). */
+  durationSamples: number;
 }
 
 /**
@@ -82,6 +87,8 @@ export async function uploadAudioAndCreateClip(
         duration: placement.duration,
         audioOffset: placement.audioOffset ?? 0,
         mode: placement.mode,
+        audioInClips: placement.audioInClips,
+        durationSamples: placement.durationSamples,
       },
     },
     // Append the new clip into the cached `ProjectQuery` so the timeline lanes

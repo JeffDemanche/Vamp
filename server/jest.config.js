@@ -7,6 +7,9 @@ module.exports = {
   roots: ["<rootDir>/src", "<rootDir>/test"],
   testMatch: ["**/*.test.ts"],
   moduleFileExtensions: ["ts", "tsx", "js", "json"],
+  moduleNameMapper: {
+    "^@vamp/shared$": "<rootDir>/../shared/src/index.ts",
+  },
   // The in-memory Mongo binary can take a moment to spin up on first run.
   testTimeout: 60000,
   clearMocks: true,

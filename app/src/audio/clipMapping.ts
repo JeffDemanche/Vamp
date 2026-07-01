@@ -1,12 +1,18 @@
-import type { AudioEngineClip, ClipSchedulingMode } from "./AudioEngine";
+import {
+  backfillAudioInClips,
+  flattenAudioInClips,
+  type AudioInClipSpec,
+} from "@vamp/shared";
+
+import type { AudioEngineClip, AudioId } from "./AudioEngine";
 
 /** Minimal `ProjectAudio` shape needed to load bytes into the engine. */
 export type LoadableProjectAudio = {
   _id: string;
   uploadStatus: string;
   downloadUrl?: string | null;
-  /** Loop length (samples) for stacked scheduling. */
   loopLength?: number | null;
+  durationSamples?: number | null;
 };
 
 /** Minimal `ProjectClip` shape needed to derive engine clips. */
@@ -16,12 +22,13 @@ export type LoadableProjectClip = {
   duration: number;
   audioOffset: number;
   mode?: string | null;
+  audioInClips?: readonly {
+    start: number;
+    duration: number;
+    audioOffset: number;
+  }[] | null;
   audio?: LoadableProjectAudio | null;
 };
-
-function toSchedulingMode(mode: string | null | undefined): ClipSchedulingMode {
-  return mode === "STACKED" ? "stacked" : "flat";
-}
 
 /**
  * Map a hydrated `ProjectClip` into the shape the {@link AudioEngine} schedules
@@ -33,14 +40,31 @@ export function toAudioEngineClip(
 ): AudioEngineClip | null {
   const audio = clip.audio;
   if (!audio || audio.uploadStatus !== "READY") return null;
+
+  const audioInClips: AudioInClipSpec[] =
+    clip.audioInClips && clip.audioInClips.length > 0
+      ? clip.audioInClips.map((aic) => ({
+          start: aic.start,
+          duration: aic.duration,
+          audioOffset: aic.audioOffset,
+        }))
+      : backfillAudioInClips(
+          {
+            start: clip.start,
+            duration: clip.duration,
+            audioOffset: clip.audioOffset,
+            mode: clip.mode === "STACKED" ? "STACKED" : "FLAT",
+          },
+          audio.loopLength,
+          audio.durationSamples,
+        );
+
   return {
     id: clip._id,
     audioId: audio._id,
     start: clip.start,
     duration: clip.duration,
-    mode: toSchedulingMode(clip.mode),
-    loopLength: audio.loopLength ?? undefined,
-    offset: clip.audioOffset,
+    audioInClips,
   };
 }
 

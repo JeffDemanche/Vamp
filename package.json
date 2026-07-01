@@ -4,6 +4,7 @@
   "private": true,
   "description": "Monorepo for Vamp, a collaborative music-making app",
   "workspaces": [
+    "shared",
     "server",
     "app"
   ],
@@ -13,7 +14,7 @@
     "copy:client": "rm -rf public && cp -r app/dist public",
     "start": "npm run start --workspace server",
     "test": "npm run test --workspaces --if-present",
-    "dev:server": "npm run dev --workspace server",
+    "dev:server": "npm run build -w @vamp/shared && npm run dev --workspace server",
     "dev:app": "npm run dev --workspace app",
     "codegen": "npm run codegen --workspace app",
     "schema": "npm run schema --workspace server",

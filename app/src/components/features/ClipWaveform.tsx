@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { stackedLayerCount } from "@/audio/AudioEngine"
+import { resolveScheduledEvent, type AudioInClipSpec } from "@vamp/shared"
 import { useAudioBuffer } from "@/audio/AudioEngineProvider"
 import { computeClipPeaks } from "@/audio/waveformPeaks"
 import { Waveform } from "@/components/primitives/waveform"
@@ -33,32 +33,22 @@ function resolveWaveColor(token: string, alphaPercent: number): string {
 /**
  * The waveform drawn in the background of a placed clip. Pulls the clip's source
  * audio straight from the {@link useAudioBuffer engine's decoded buffer} (no
- * re-fetch), reduces the clip's `[audioOffset, audioOffset + duration)` window
- * to peaks, and hands them to the pure {@link Waveform} primitive.
+ * re-fetch), reduces each {@link AudioInClipSpec}'s effective window to peaks,
+ * and hands them to the pure {@link Waveform} primitive.
  *
- * For a **stacked** clip the underlying recording holds several loop passes
- * overlaid within the clip's single loop region (matching the **AudioEngine**'s
- * stacked scheduling): one waveform layer is drawn per pass, each reading the
- * slice at that pass's exact buffer offset (`audioOffset + k * loopLength`) and
- * overlaid in the same clip body so the layers read as stacked. Each layer's
- * alpha is divided by the layer count so the overlaid stack reads at roughly a
- * flat clip's opacity. Flat clips draw a single layer.
+ * For a **stacked** clip one waveform layer is drawn per baked `AudioInClip`,
+ * intersected with the clip trim envelope so trimmed clips truncate each layer
+ * at the clip end. Flat clips draw a single layer.
  *
  * Renders nothing until the buffer has downloaded/decoded, so the clip shows its
- * plain surface first and the waveform fades in once bytes land. Its colour
- * tracks the clip's `selected`/`hovered` state to match the shared selection
- * styling — foreground-on-fill when lit up, a subtle tint otherwise.
- *
- * Mount inside an `AudioEngineProvider` (for the buffer) and a timeline editor
- * (for the sample rate). Times are in samples (see `AGENTS.md`).
+ * plain surface first and the waveform fades in once bytes land.
  */
 export function ClipWaveform({
   audioId,
   buffer: bufferOverride,
-  audioOffset,
-  duration,
-  mode,
-  loopLength,
+  clipStart,
+  clipDuration,
+  audioInClips,
   selected,
   hovered,
   variant = "standard",
@@ -66,14 +56,12 @@ export function ClipWaveform({
   audioId?: string
   /** When set, draws from this buffer instead of fetching `audioId` from the engine. */
   buffer?: AudioBuffer | null
-  /** Sample offset into the source audio where the clip's window begins. */
-  audioOffset: number
-  /** Clip length, in samples — the width of the audio window shown. */
-  duration: number
-  /** How the clip schedules its audio (`FLAT` or `STACKED`). */
-  mode: string
-  /** Loop length (samples) for stacked clips; `null`/`0` for flat clips. */
-  loopLength?: number | null
+  /** Clip trim envelope start (timeline samples). */
+  clipStart: number
+  /** Clip trim envelope duration (timeline samples). */
+  clipDuration: number
+  /** Baked dispatched events — one waveform layer per entry. */
+  audioInClips: readonly AudioInClipSpec[]
   selected: boolean
   hovered: boolean
   /** Colour scheme for the waveform (`recording` uses destructive tokens). */
@@ -83,33 +71,29 @@ export function ClipWaveform({
   const buffer = bufferOverride ?? bufferFromEngine
   const { sampleRate } = useTimelineViewport()
 
-  // One peaks array per stacked loop pass (just one for a flat clip), each
-  // offset into the recording by that pass's buffer offset so the layers line
-  // up with the engine's stacked audio events. When the clip is longer than
-  // the available audio, peaks and display width follow the audio length.
   const layers = React.useMemo(() => {
     if (!buffer) return null
-    const stacked = mode === "STACKED" && loopLength != null && loopLength > 0
-    const count = stacked
-      ? stackedLayerCount(buffer.duration * sampleRate, loopLength)
-      : 1
-    return Array.from({ length: count }, (_, k) => {
-      const offset = audioOffset + k * (loopLength ?? 0)
+    const envelope = { start: clipStart, duration: clipDuration }
+    return audioInClips.flatMap((aic) => {
+      const resolved = resolveScheduledEvent(aic, envelope)
+      if (!resolved) return []
+      const timelineSamples = resolved.endSample - resolved.startSample
+      const offset = resolved.bufferOffset
       const audioSamples = Math.max(
         0,
-        Math.min(duration, buffer.length - offset),
+        Math.min(timelineSamples, buffer.length - offset),
       )
-      return {
-        peaks: computeClipPeaks(buffer, offset, audioSamples),
-        widthFraction: duration > 0 ? audioSamples / duration : 1,
-        seconds: audioSamples / sampleRate,
-      }
+      return [
+        {
+          peaks: computeClipPeaks(buffer, offset, audioSamples),
+          widthFraction:
+            clipDuration > 0 ? timelineSamples / clipDuration : 1,
+          seconds: audioSamples / sampleRate,
+        },
+      ]
     })
-  }, [buffer, audioOffset, duration, mode, loopLength, sampleRate])
+  }, [buffer, clipStart, clipDuration, audioInClips, sampleRate])
 
-  // Split the base alpha across the stacked layers so their overlaid sum reads
-  // at roughly the opacity of a flat clip's single waveform (a flat clip has
-  // one layer, so its colour is unchanged).
   const layerCount = layers?.length ?? 1
   const waveColor = React.useMemo(() => {
     if (variant === "recording") {
@@ -125,10 +109,10 @@ export function ClipWaveform({
     return resolveWaveColor("--foreground", WAVE_ALPHA.default / layerCount)
   }, [selected, hovered, layerCount, variant])
 
-  if (!layers) return null
+  if (!layers || layers.length === 0) return null
 
   if (layers.length === 1) {
-    const layer = layers[0]
+    const layer = layers[0]!
     return (
       <WaveformLayer
         peaks={layer.peaks}

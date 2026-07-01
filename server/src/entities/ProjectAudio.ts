@@ -77,6 +77,15 @@ export class ProjectAudio {
   @prop()
   loopLength?: number;
 
+  /**
+   * Duration of the decoded audio in timeline samples. Set when a clip is
+   * created so stacked {@link AudioInClip} backfill can derive the pass count
+   * for legacy clips.
+   */
+  @Field(() => Int, { nullable: true })
+  @prop()
+  durationSamples?: number;
+
   /** Whether the upload has been confirmed present in S3. */
   @Field(() => AudioUploadStatus)
   @prop({ required: true, enum: AudioUploadStatus, default: AudioUploadStatus.PENDING })

@@ -70,4 +70,14 @@ export class ProjectAudioRepository {
       .lean<ProjectAudio>()
       .exec();
   }
+
+  setDurationSamples(id: string, durationSamples: number): Promise<ProjectAudio | null> {
+    return ProjectAudioModel.findByIdAndUpdate(
+      id,
+      { $set: { durationSamples } },
+      { returnDocument: "after" },
+    )
+      .lean<ProjectAudio>()
+      .exec();
+  }
 }

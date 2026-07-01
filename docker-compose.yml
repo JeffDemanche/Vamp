@@ -22,7 +22,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: npm run dev:server
+    command: sh -c "npm run build -w @vamp/shared && npm run dev:server"
     restart: unless-stopped
     ports:
       - "4000:4000"
@@ -47,7 +47,15 @@ services:
           ignore:
             - node_modules/
             - dist/
+        - action: sync
+          path: ./shared
+          target: /app/shared
+          ignore:
+            - node_modules/
+            - dist/
         # Dependency changes require a fresh `npm ci` -> rebuild the image.
+        - action: rebuild
+          path: ./shared/package.json
         - action: rebuild
           path: ./server/package.json
         - action: rebuild
@@ -85,6 +93,14 @@ services:
         - action: sync
           path: ./server/schema.graphql
           target: /app/server/schema.graphql
+        - action: sync
+          path: ./shared
+          target: /app/shared
+          ignore:
+            - node_modules/
+            - dist/
+        - action: rebuild
+          path: ./shared/package.json
         - action: rebuild
           path: ./app/package.json
         - action: rebuild

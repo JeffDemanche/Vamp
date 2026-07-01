@@ -185,9 +185,41 @@ function stateWith(overrides: Partial<AudioEngineState> = {}): AudioEngineState 
 }
 
 function flatClip(
-  clip: Omit<AudioEngineClip, "mode"> & Partial<Pick<AudioEngineClip, "mode">>,
+  clip: Pick<AudioEngineClip, "id" | "audioId" | "start" | "duration"> & {
+    audioOffset?: number;
+  },
 ): AudioEngineClip {
-  return { mode: "flat", ...clip };
+  const audioOffset = clip.audioOffset ?? 0;
+  return {
+    id: clip.id,
+    audioId: clip.audioId,
+    start: clip.start,
+    duration: clip.duration,
+    audioInClips: [
+      { start: clip.start, duration: clip.duration, audioOffset },
+    ],
+  };
+}
+
+function stackedClip(
+  clip: Pick<AudioEngineClip, "id" | "audioId" | "start" | "duration"> & {
+    loopLength: number;
+    passes: number;
+    audioOffset?: number;
+  },
+): AudioEngineClip {
+  const baseOffset = clip.audioOffset ?? 0;
+  return {
+    id: clip.id,
+    audioId: clip.audioId,
+    start: clip.start,
+    duration: clip.duration,
+    audioInClips: Array.from({ length: clip.passes }, (_, k) => ({
+      start: clip.start,
+      duration: clip.duration,
+      audioOffset: baseOffset + k * clip.loopLength,
+    })),
+  };
 }
 
 const fakeBuffer = { duration: 2 } as AudioBuffer;
@@ -205,7 +237,7 @@ describe("AudioEngine", () => {
     engine.update(
       stateWith({
         clips: [
-          flatClip({ id: "c1", audioId: "a1", start: 100, duration: 50, offset: 10 }),
+          flatClip({ id: "c1", audioId: "a1", start: 100, duration: 50, audioOffset: 10 }),
           flatClip({ id: "c2", audioId: "a2", start: 200, duration: 25 }),
         ],
       }),
@@ -219,25 +251,21 @@ describe("AudioEngine", () => {
 
   it("overlays a stacked clip's recorded loop passes within its loop region", () => {
     const { engine } = makeEngine();
-    // A 3-second recording (three 1s passes) overlaid within a 1s loop region.
-    engine.setAudioBuffer("a1", { duration: 3 } as AudioBuffer);
     engine.update(
       stateWith({
         clips: [
-          {
+          stackedClip({
             id: "c1",
             audioId: "a1",
             start: 0,
             duration: SAMPLE_RATE,
-            mode: "stacked",
             loopLength: SAMPLE_RATE,
-          },
+            passes: 3,
+          }),
         ],
       }),
     );
 
-    // Three passes, all sounding over the same one-region window but reading a
-    // different loop-length slice of the recording.
     expect(engine.audioEvents).toEqual([
       { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE, bufferOffset: 0 },
       { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE, bufferOffset: SAMPLE_RATE },
@@ -245,7 +273,7 @@ describe("AudioEngine", () => {
     ]);
   });
 
-  it("emits a single stacked event until the recording's buffer has loaded", () => {
+  it("truncates audio events at the clip envelope when the clip is trimmed shorter", () => {
     const { engine } = makeEngine();
     engine.update(
       stateWith({
@@ -254,16 +282,19 @@ describe("AudioEngine", () => {
             id: "c1",
             audioId: "a1",
             start: 0,
-            duration: SAMPLE_RATE,
-            mode: "stacked",
-            loopLength: SAMPLE_RATE,
+            duration: SAMPLE_RATE / 2,
+            audioInClips: [
+              { start: 0, duration: SAMPLE_RATE, audioOffset: 0 },
+              { start: 0, duration: SAMPLE_RATE, audioOffset: SAMPLE_RATE },
+            ],
           },
         ],
       }),
     );
 
     expect(engine.audioEvents).toEqual([
-      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE, bufferOffset: 0 },
+      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE / 2, bufferOffset: 0 },
+      { clipId: "c1", audioId: "a1", startSample: 0, endSample: SAMPLE_RATE / 2, bufferOffset: SAMPLE_RATE },
     ]);
   });
 
@@ -296,21 +327,20 @@ describe("AudioEngine", () => {
 
   it("schedules an overlaid source per recorded loop pass for a stacked clip", () => {
     const { ctx, engine } = makeEngine();
-    // A 2-second recording (two 1s passes) overlaid within a 1s loop region.
     engine.setAudioBuffer("a1", { duration: 2 } as AudioBuffer);
     const loopLength = SAMPLE_RATE;
     engine.update(
       stateWith({
         playStart: 0,
         clips: [
-          {
+          stackedClip({
             id: "c1",
             audioId: "a1",
             start: 0,
-            duration: SAMPLE_RATE,
-            mode: "stacked",
+            duration: loopLength,
             loopLength,
-          },
+            passes: 2,
+          }),
         ],
       }),
     );

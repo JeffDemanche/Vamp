@@ -1,4 +1,10 @@
 import {
+  deriveLiveRecordingAudioInClips,
+  flattenAudioInClips,
+  resolveScheduledEvent,
+} from "@vamp/shared";
+export { stackedLayerCount } from "@vamp/shared";
+import {
   finalizeWrappedRecordingPcm,
   remapFirstPassToLoopRegion,
 } from "@/audio/recordingClipLayout";
@@ -41,8 +47,8 @@ import { DEFAULT_SAMPLE_RATE } from "@/state/timeline";
 /** Identifier for an audio file held in the engine's in-memory store. */
 export type AudioId = string;
 
-/** How a clip schedules its underlying audio for playback. */
-export type ClipSchedulingMode = "flat" | "stacked";
+/** In-memory audio id for the live recording buffer during capture. */
+export const LIVE_RECORDING_AUDIO_ID = "__recording__";
 
 /**
  * A clip as the audio engine needs to see it. Upstream code maps a project's
@@ -54,25 +60,15 @@ export type AudioEngineClip = {
   id: string;
   /** Which in-memory audio file this clip plays. */
   audioId: AudioId;
-  /** Timeline sample at which the clip begins. */
+  /** Clip trim envelope — intersected with each {@link AudioInClipSpec}. */
   start: number;
-  /** Clip length, in samples. */
   duration: number;
-  /**
-   * How this clip schedules its underlying audio. `flat` plays once; `stacked`
-   * re-triggers at every loop point (see `loopLength`).
-   */
-  mode: ClipSchedulingMode;
-  /**
-   * Loop length (samples) for stacked scheduling — taken from the audio record.
-   * Ignored for flat clips.
-   */
-  loopLength?: number;
-  /**
-   * Sample offset into the source audio file at which the clip's audio begins.
-   * Defaults to `0` (play the file from its start).
-   */
-  offset?: number;
+  /** Baked dispatched playback events for this clip. */
+  audioInClips: Array<{
+    start: number;
+    duration: number;
+    audioOffset: number;
+  }>;
 };
 
 /**
@@ -266,6 +262,9 @@ export class AudioEngine {
   /** Playback events derived from the current clips. */
   private events: AudioEvent[] = [];
 
+  /** Live recording events scheduled after the first loop wrap during capture. */
+  private liveRecordingEvents: AudioEvent[] = [];
+
   private context: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   /** Preferred microphone device id, or `null` for the system default. */
@@ -434,7 +433,8 @@ export class AudioEngine {
    */
   update(state: AudioEngineState): void {
     this.state = state;
-    this.events = this.deriveEvents(state.clips);
+    this.events = flattenAudioInClips(state.clips);
+    this.refreshLiveRecordingEvents();
 
     if (this.playing) {
       const resumeFrom = this.timecode;
@@ -758,6 +758,9 @@ export class AudioEngine {
   /** Stop the recorder (if any) and release the microphone stream. */
   private cleanupRecording(): void {
     this.teardownRecordingTap();
+    this.liveRecordingEvents = [];
+    this.audioBuffers.delete(LIVE_RECORDING_AUDIO_ID);
+    this.notifyAudioStore();
     if (this.recordingStream) {
       for (const track of this.recordingStream.getTracks()) track.stop();
       this.recordingStream = null;
@@ -905,7 +908,7 @@ export class AudioEngine {
     this.contextStartTime = ctx.currentTime;
     this.playheadStartSample = fromSample;
 
-    for (const event of this.events) {
+    for (const event of this.scheduledEvents()) {
       const buffer = this.audioBuffers.get(event.audioId);
       if (!buffer) continue;
 
@@ -944,6 +947,7 @@ export class AudioEngine {
         this.recordCrossedLoop = true;
         this.recordingBufferCache = undefined;
         this.notifyRecordingBuffer();
+        this.refreshLiveRecordingEvents();
       }
       this.teardownPlayback();
       this.scheduleFrom(playStart);
@@ -972,59 +976,59 @@ export class AudioEngine {
     this.activeSources = [];
   }
 
-  /**
-   * Derive the playback events for the current clips. A flat clip yields one
-   * event spanning its timeline window. A **stacked** clip occupies a single
-   * loop region (its `duration`) and overlays every recorded loop pass on top
-   * of itself within that region: one event per pass, all starting at the
-   * clip's start (truncated at the clip end) but reading a different
-   * `loopLength`-sized slice of the underlying recording
-   * (`bufferOffset += k * loopLength`). The pass count comes from the decoded
-   * recording's length, so it is only correct once the buffer has loaded —
-   * {@link update} re-derives as buffers land.
-   */
-  private deriveEvents(clips: AudioEngineClip[]): AudioEvent[] {
-    const events: AudioEvent[] = [];
-    for (const clip of clips) {
-      const bufferOffset = clip.offset ?? 0;
-      const clipEnd = clip.start + clip.duration;
-      const loopLength = clip.loopLength;
-
-      if (clip.mode !== "stacked" || loopLength === undefined || loopLength <= 0) {
-        events.push({
-          clipId: clip.id,
-          audioId: clip.audioId,
-          startSample: clip.start,
-          endSample: clipEnd,
-          bufferOffset,
-        });
-        continue;
-      }
-
-      const layers = this.stackLayerCount(clip.audioId, loopLength);
-      for (let k = 0; k < layers; k++) {
-        events.push({
-          clipId: clip.id,
-          audioId: clip.audioId,
-          startSample: clip.start,
-          endSample: clipEnd,
-          bufferOffset: bufferOffset + k * loopLength,
-        });
-      }
-    }
-    return events;
+  private scheduledEvents(): AudioEvent[] {
+    if (this.liveRecordingEvents.length === 0) return this.events;
+    return [...this.events, ...this.liveRecordingEvents];
   }
 
   /**
-   * How many loop passes a stacked clip's recording contains. Derived from the
-   * decoded buffer's `duration` (seconds, decode-rate independent) scaled to
-   * timeline samples and divided by `loopLength`. Returns `1` until the buffer
-   * has loaded (the event list is re-derived once it does).
+   * Derive and cache live-recording playback events after the first loop wrap,
+   * and sync the in-progress PCM buffer into the audio store for scheduling.
    */
-  private stackLayerCount(audioId: AudioId, loopLength: number): number {
-    const buffer = this.audioBuffers.get(audioId);
-    if (!buffer) return 1;
-    return stackedLayerCount(buffer.duration * this.state.sampleRate, loopLength);
+  private refreshLiveRecordingEvents(): void {
+    if (!this.mediaRecorder || !this.recordCrossedLoop) {
+      this.liveRecordingEvents = [];
+      return;
+    }
+
+    const capturedSamples = this.getRecordingCapturedSamples();
+    const specs = deriveLiveRecordingAudioInClips({
+      startSample: Math.round(this.recordStartSample),
+      capturedSamples,
+      loopLength: this.recordLoopLength,
+      playStart: this.recordPlayStart,
+      crossedLoopBoundary: true,
+    });
+
+    if (!specs || specs.length === 0) {
+      this.liveRecordingEvents = [];
+      return;
+    }
+
+    const buffer = this.getRecordingBuffer();
+    if (buffer) {
+      this.audioBuffers.set(LIVE_RECORDING_AUDIO_ID, buffer);
+      this.notifyAudioStore();
+    }
+
+    const envelope = {
+      start: specs[0]!.start,
+      duration: specs[0]!.duration,
+    };
+
+    this.liveRecordingEvents = specs.flatMap((aic) => {
+      const resolved = resolveScheduledEvent(aic, envelope);
+      if (!resolved) return [];
+      return [
+        {
+          clipId: LIVE_RECORDING_AUDIO_ID,
+          audioId: LIVE_RECORDING_AUDIO_ID,
+          startSample: resolved.startSample,
+          endSample: resolved.endSample,
+          bufferOffset: resolved.bufferOffset,
+        },
+      ];
+    });
   }
 
   private notify(): void {
@@ -1093,19 +1097,4 @@ export class AudioEngine {
 function recorderError(event: Event): Error {
   const err = (event as unknown as { error?: DOMException }).error;
   return err ?? new Error("Recording failed.");
-}
-
-/**
- * The number of loop passes stacked within a stacked clip: the recorded audio
- * length divided by the loop length (both in timeline samples), rounded to the
- * nearest whole pass and at least one. Shared by the engine's scheduling and
- * the UI's mode badge so both agree on how many layers/events a stacked clip
- * has.
- */
-export function stackedLayerCount(
-  recordedSamples: number,
-  loopLength: number,
-): number {
-  if (loopLength <= 0) return 1;
-  return Math.max(1, Math.round(recordedSamples / loopLength));
 }

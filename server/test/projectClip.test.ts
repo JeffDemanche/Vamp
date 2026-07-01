@@ -47,6 +47,12 @@ const UPDATE_CLIP = /* GraphQL */ `
       duration
       maxDuration
       track
+      audioInClips {
+        _id
+        start
+        duration
+        audioOffset
+      }
     }
   }
 `;
@@ -117,6 +123,14 @@ async function seedClips(
     maxDuration: 1000,
     mode: "FLAT",
     audioOffset: 0,
+    audioInClips: [
+      {
+        _id: new Types.ObjectId().toHexString(),
+        start: i * 1000,
+        duration: 1000,
+        audioOffset: 0,
+      },
+    ],
     track: trackId,
     audio: new Types.ObjectId().toHexString(),
     creator: creatorId,
@@ -166,6 +180,7 @@ describe("ProjectClip API (updateClip)", () => {
     const stored = data?.clips.find((c) => String(c._id) === clipA);
     expect(stored?.start).toBe(5000);
     expect(String(stored?.track)).toBe(trackId);
+    expect(stored?.audioInClips[0]?.start).toBe(5000);
   });
 
   it("moves a clip onto another track (and can reposition it at once)", async () => {
@@ -194,6 +209,30 @@ describe("ProjectClip API (updateClip)", () => {
     const stored = data?.clips.find((c) => String(c._id) === clipA);
     expect(String(stored?.track)).toBe(trackB);
     expect(stored?.start).toBe(12000);
+  });
+
+  it("does not rewrite audioInClip duration when trimming a clip", async () => {
+    const ownerId = await createUser("owner", "owner@example.com");
+    const { projectId, projectDataId, trackId } = await createProject(ownerId);
+    const [clipA] = await seedClips(projectDataId, trackId, ownerId, 1);
+
+    const res = await execute<{
+      updateClip: { duration: number; audioInClips: { duration: number }[] };
+    }>(
+      stack.apollo,
+      UPDATE_CLIP,
+      { input: { projectId, clipId: clipA, duration: 500 } },
+      asUser(ownerId),
+    );
+
+    expect(res.errors).toBeUndefined();
+    expect(res.data!.updateClip.duration).toBe(500);
+    expect(res.data!.updateClip.audioInClips[0]?.duration).toBe(1000);
+
+    const data = await ProjectDataModel.findById(projectDataId).lean();
+    const stored = data?.clips.find((c) => String(c._id) === clipA);
+    expect(stored?.duration).toBe(500);
+    expect(stored?.audioInClips[0]?.duration).toBe(1000);
   });
 
   it("clamps duration to maxDuration when shortening a clip", async () => {

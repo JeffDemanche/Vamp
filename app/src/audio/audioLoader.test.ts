@@ -20,36 +20,62 @@ describe("clipMapping", () => {
         duration: 500,
         audioOffset: 50,
         audio: readyAudio,
+        audioInClips: [{ start: 100, duration: 500, audioOffset: 50 }],
       }),
     ).toEqual({
       id: "clip-1",
       audioId: "audio-1",
       start: 100,
       duration: 500,
-      mode: "flat",
-      loopLength: undefined,
-      offset: 50,
+      audioInClips: [{ start: 100, duration: 500, audioOffset: 50 }],
     });
   });
 
-  it("maps STACKED mode and loopLength from the audio record", () => {
+  it("passes through baked STACKED audioInClips", () => {
     expect(
       toAudioEngineClip({
         _id: "clip-1",
         start: 0,
-        duration: 3000,
+        duration: 1000,
         audioOffset: 0,
         mode: "STACKED",
+        audioInClips: [
+          { start: 0, duration: 1000, audioOffset: 0 },
+          { start: 0, duration: 1000, audioOffset: 1000 },
+        ],
         audio: { ...readyAudio, loopLength: 1000 },
       }),
     ).toEqual({
       id: "clip-1",
       audioId: "audio-1",
       start: 0,
-      duration: 3000,
-      mode: "stacked",
-      loopLength: 1000,
-      offset: 0,
+      duration: 1000,
+      audioInClips: [
+        { start: 0, duration: 1000, audioOffset: 0 },
+        { start: 0, duration: 1000, audioOffset: 1000 },
+      ],
+    });
+  });
+
+  it("backfills audioInClips for legacy clips", () => {
+    expect(
+      toAudioEngineClip({
+        _id: "clip-1",
+        start: 0,
+        duration: 1000,
+        audioOffset: 0,
+        mode: "STACKED",
+        audio: { ...readyAudio, loopLength: 1000, durationSamples: 2000 },
+      }),
+    ).toEqual({
+      id: "clip-1",
+      audioId: "audio-1",
+      start: 0,
+      duration: 1000,
+      audioInClips: [
+        { start: 0, duration: 1000, audioOffset: 0 },
+        { start: 0, duration: 1000, audioOffset: 1000 },
+      ],
     });
   });
 

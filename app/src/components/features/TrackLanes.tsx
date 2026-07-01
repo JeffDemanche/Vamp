@@ -66,10 +66,13 @@ function ClipDragPreview({
         >
           <ClipWaveform
             audioId={clip.audio._id}
-            audioOffset={clip.audioOffset}
-            duration={clip.duration}
-            mode={clip.mode}
-            loopLength={clip.audio.loopLength}
+            clipStart={clipDrag.start}
+            clipDuration={clip.duration}
+            audioInClips={clip.audioInClips.map((aic) => ({
+              start: aic.start + (clipDrag.start - clip.start),
+              duration: aic.duration,
+              audioOffset: aic.audioOffset,
+            }))}
             selected
             hovered={false}
           />

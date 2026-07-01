@@ -1,3 +1,4 @@
+import { deriveAudioInClips } from "@vamp/shared"
 import {
   useAudioEnginePlaying,
   useRecordingBuffer,
@@ -41,7 +42,7 @@ export function RecordingClip({ trackId }: { trackId: string }) {
 
   if (!recording || recording.trackId !== trackId) return null
 
-  const { start, duration, mode, loopLength } = recordingClipLayout({
+  const layout = recordingClipLayout({
     startSample: recording.startSample,
     capturedSamples,
     loopLength: recording.loopLength,
@@ -49,15 +50,23 @@ export function RecordingClip({ trackId }: { trackId: string }) {
     crossedLoopBoundary,
   })
 
+  const audioInClips = deriveAudioInClips({
+    mode: layout.mode,
+    clipStart: layout.start,
+    clipDuration: layout.duration,
+    clipAudioOffset: 0,
+    loopLength: layout.loopLength,
+    recordedSamples: capturedSamples,
+  })
+
   return (
-    <SwimlaneItem start={start} duration={duration}>
+    <SwimlaneItem start={layout.start} duration={layout.duration}>
       <Clip variant="recording" label="Recording">
         <ClipWaveform
           buffer={buffer}
-          audioOffset={0}
-          duration={duration}
-          mode={mode}
-          loopLength={loopLength}
+          clipStart={layout.start}
+          clipDuration={layout.duration}
+          audioInClips={audioInClips}
           selected={false}
           hovered={false}
           variant="recording"

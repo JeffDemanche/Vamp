@@ -17,6 +17,7 @@ import {
   recordingClipLayout,
   type RecordingClipLayout,
 } from "@/audio/recordingClipLayout"
+import { deriveAudioInClips } from "@vamp/shared"
 import { logError } from "@/lib/errors"
 import { uploadAudioAndCreateClip } from "@/projects/audioUpload"
 import { useRecording, useSelectedTrack, useTimelinePlayback } from "@/state/timeline"
@@ -240,6 +241,15 @@ export function RecordingController({
     }
     try {
       const placement = clipPlacementFromRecording(result)
+      const audioOffset = 0
+      const audioInClips = deriveAudioInClips({
+        mode: placement.mode,
+        clipStart: placement.start,
+        clipDuration: placement.duration,
+        clipAudioOffset: audioOffset,
+        loopLength: placement.loopLength,
+        recordedSamples: result.durationSamples,
+      })
       await uploadAudioAndCreateClip(
         client,
         result.blob,
@@ -248,9 +258,11 @@ export function RecordingController({
           trackId: finishedRecording.trackId,
           start: placement.start,
           duration: placement.duration,
-          audioOffset: 0,
+          audioOffset,
           mode: placement.mode,
           loopLength: placement.loopLength,
+          audioInClips,
+          durationSamples: result.durationSamples,
         },
         { engine },
       )

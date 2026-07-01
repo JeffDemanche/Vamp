@@ -2,8 +2,6 @@ import * as React from "react"
 import { useMutation } from "@apollo/client/react"
 import { RectangleHorizontal, SquareStack } from "lucide-react"
 
-import { stackedLayerCount } from "@/audio/AudioEngine"
-import { useAudioBuffer } from "@/audio/AudioEngineProvider"
 import { Clip } from "@/components/composites/clip"
 import { SwimlaneItem } from "@/components/composites/swimlane"
 import { useTimelineCoords } from "@/components/composites/timeline"
@@ -11,7 +9,7 @@ import { ClipWaveform } from "@/components/features/ClipWaveform"
 import { useTimelineDrag } from "@/components/primitives/use-timeline-drag"
 import { cn } from "@/lib/utils"
 import { UpdateClipMutation } from "@/projects/queries"
-import { useSelectedClips, useSetClipDrag, useTimelineViewport } from "@/state/timeline"
+import { useSelectedClips, useSetClipDrag } from "@/state/timeline"
 
 /** The clip data this component needs to place itself, in timeline samples. */
 export type TimelineClipData = {
@@ -24,6 +22,11 @@ export type TimelineClipData = {
   mode: string
   /** `_id` of the `ProjectTrack` the clip currently lives on. */
   track: string
+  audioInClips: readonly {
+    start: number
+    duration: number
+    audioOffset: number
+  }[]
   audio: {
     /** `_id` of the source `ProjectAudio`, used to fetch the decoded buffer for its waveform. */
     _id: string
@@ -36,15 +39,10 @@ export type TimelineClipData = {
 /**
  * A subtle icon badge for the clip's **Clip mode**, shown in the clip header.
  * Flat clips get a single-rectangle glyph; stacked clips get a stack glyph plus
- * the number of audio events they dispatch — the count of recorded loop passes
- * overlaid within the clip, derived (like the `AudioEngine`) from the decoded
- * recording's length divided by its loop length. The count appears once the
- * audio buffer has loaded; until then just the glyph shows.
+ * the number of baked {@link AudioInClip}s (dispatched playback events).
  */
 export function ClipModeBadge({ clip }: { clip: TimelineClipData }) {
   const isStacked = clip.mode === "STACKED"
-  const buffer = useAudioBuffer(isStacked ? clip.audio._id : null)
-  const { sampleRate } = useTimelineViewport()
 
   if (!isStacked) {
     return (
@@ -54,20 +52,16 @@ export function ClipModeBadge({ clip }: { clip: TimelineClipData }) {
     )
   }
 
-  const loopLength = clip.audio.loopLength ?? 0
-  const count =
-    buffer && loopLength > 0
-      ? stackedLayerCount(buffer.duration * sampleRate, loopLength)
-      : null
+  const count = clip.audioInClips.length
 
   return (
     <span
       className="flex items-center gap-0.5 text-[10px] leading-none tabular-nums opacity-60"
-      title={count !== null ? `Stacked clip · ${count} layers` : "Stacked clip"}
-      aria-label={count !== null ? `Stacked clip, ${count} layers` : "Stacked clip"}
+      title={count > 0 ? `Stacked clip · ${count} layers` : "Stacked clip"}
+      aria-label={count > 0 ? `Stacked clip, ${count} layers` : "Stacked clip"}
     >
       <SquareStack className="size-3" aria-hidden />
-      {count !== null && count}
+      {count > 0 && count}
     </span>
   )
 }
@@ -277,10 +271,9 @@ export function TimelineClip({
       >
         <ClipWaveform
           audioId={clip.audio._id}
-          audioOffset={clip.audioOffset}
-          duration={clip.duration}
-          mode={clip.mode}
-          loopLength={clip.audio.loopLength}
+          clipStart={clip.start}
+          clipDuration={clip.duration}
+          audioInClips={clip.audioInClips}
           selected={selected}
           hovered={hovered}
         />
